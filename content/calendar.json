@@ -1,0 +1,10 @@
+[
+  { "id": "reels-3-mistakes", "date": "2026-10-27", "time": "10:00", "format": "Reels", "title": "3 ошибки при выборе формы налогообложения JDG", "channel": "Instagram", "owner": "Gemini", "status": "scripted" },
+  { "id": "screen-ksef", "date": "2026-10-28", "time": "12:00", "format": "Screen recording", "title": "Как выставить фактуру в KSeF — запись экрана", "channel": "YouTube / Instagram", "owner": "Human", "status": "idea" },
+  { "id": "blog-ulga-na-start", "date": "2026-10-29", "time": "11:00", "format": "Blog", "title": "Ulga na start и Mały ZUS Plus: что выбрать", "channel": "imosta.pl/blog", "owner": "Gemini", "status": "scripted" },
+  { "id": "reels-webinar-teaser", "date": "2026-10-30", "time": "18:00", "format": "Reels", "title": "Анонс вебинара OPRIMO 15.11 — Татьяна Бакаева", "channel": "Instagram", "owner": "Human", "status": "recorded" },
+  { "id": "screen-jdg-ceidg", "date": "2026-11-03", "time": "12:00", "format": "Screen recording", "title": "Регистрация JDG в CEIDG — пошагово", "channel": "YouTube", "owner": "Human", "status": "idea" },
+  { "id": "blog-estonski-cit", "date": "2026-11-04", "time": "11:00", "format": "Blog", "title": "Estoński CIT vs классический CIT: что выгоднее Sp. z o.o.", "channel": "imosta.pl/blog", "owner": "Gemini", "status": "idea" },
+  { "id": "reels-art-299", "date": "2026-11-05", "time": "10:00", "format": "Reels", "title": "Zarząd и art. 299 KSH за 60 секунд", "channel": "Instagram", "owner": "Gemini", "status": "idea" },
+  { "id": "screen-jpk", "date": "2026-11-06", "time": "12:00", "format": "Screen recording", "title": "JPK_V7: где смотреть статус отправки", "channel": "YouTube", "owner": "Human", "status": "idea" }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "claude",
+    "name": "Claude",
+    "description": "Claude Code: фронтенд, вёрстка, коммиты и деплой (SSOT §5).",
+    "projects": ["*"],
+    "scopes": ["tasks", "memory"]
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini",
+    "description": "Стратег и копирайтер: контент-планы, офферы, сценарии, рекламные креативы (SSOT §5).",
+    "projects": ["JDG", "Spolka", "Meta Ads", "Webinar", "Marketing", "Video Education", "English Expansion"],
+    "scopes": ["tasks", "memory"]
+  }
+]

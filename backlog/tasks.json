@@ -1,0 +1,196 @@
+[
+  {
+    "id": "utm-attribution",
+    "title": "Fix UTM attribution & Telegram alert formatting in imosta-jdg and imosta-landing",
+    "status": "review",
+    "priority": "high",
+    "assignee": "Claude",
+    "project": "Forms",
+    "tags": ["utm", "telegram", "meta-ads-readiness"],
+    "notes": "Merged to main in both repos (jdg acd7674, landing 44b37d8). Remaining: live test lead with UTMs after deploy."
+  },
+  {
+    "id": "meta-copy-packs",
+    "title": "Draft 4 Meta Ads copy packs & creative briefs for JDG and Spolka (RU/EN)",
+    "status": "in_progress",
+    "priority": "high",
+    "assignee": "Gemini",
+    "project": "Meta Ads",
+    "tags": ["copy", "creative-brief", "ru", "en"]
+  },
+  {
+    "id": "screen-recording-scripts",
+    "title": "Write 3 accountant screen-recording video scripts",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Gemini",
+    "project": "JDG",
+    "tags": ["video", "script", "screen-recording"]
+  },
+  {
+    "id": "deploy-hub",
+    "title": "Deploy TimeCraft to Vercel (timecraft.pro) and verify dashboard",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "Forms",
+    "tags": ["vercel", "deployment-protection"]
+  },
+  {
+    "id": "pl-expansion",
+    "title": "Launch Polish market expansion and /pl/ localization",
+    "status": "backlog",
+    "priority": "low",
+    "assignee": "Human",
+    "project": "JDG",
+    "tags": ["pl", "localization"],
+    "due": "2026-12"
+  },
+  {
+    "id": "english-expansion",
+    "title": "English-speaking expansion: approve strategy & hire Tandem team (EN Client Manager + Senior PL Accountant)",
+    "status": "backlog",
+    "priority": "high",
+    "assignee": "Human",
+    "project": "English Expansion",
+    "tags": ["strategy", "hiring", "en", "spolka", "startups"],
+    "notes": "Offer from 1,200 PLN/mo. Confirm SLA vs statutory deadlines with Head of Accounting.",
+    "link": "/projects/english-expansion"
+  },
+  {
+    "id": "video-kasa-fiskalna",
+    "title": "Снять видео-разбор: Чек-лист по кассовым аппаратам (kasa fiskalna)",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "Forms",
+    "tags": ["video", "education", "support"],
+    "link": "/projects/video-education"
+  },
+  {
+    "id": "video-wakacje-zus",
+    "title": "Снять пошаговый гайд: Оформление Wakacje ZUS в PUE",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "JDG",
+    "tags": ["video", "zus", "jdg"],
+    "link": "/projects/video-education"
+  },
+  {
+    "id": "video-ksef-descriptions",
+    "title": "Видео + памятка клиентам: Детализация названий на фактурах под KSeF 2.0",
+    "status": "backlog",
+    "priority": "high",
+    "assignee": "Human",
+    "project": "Spolka",
+    "tags": ["video", "ksef", "compliance"],
+    "notes": "Риски KSeF и ссылку на art. 106e ust. 1 pkt 7 согласовать с Татьяной до съёмки.",
+    "link": "/projects/video-education"
+  },
+  {
+    "id": "video-import-vat-customs",
+    "title": "Видео-инструкция: Таможенные декларации (PZC) для зачета импортного VAT",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "Spolka",
+    "tags": ["video", "vat", "import"],
+    "link": "/projects/video-education"
+  },
+  {
+    "id": "reels-filming-alena",
+    "title": "Видео-съемка Reels с Аленой",
+    "status": "in_progress",
+    "priority": "high",
+    "assignee": "Human",
+    "project": "Video Education",
+    "tags": ["video", "reels", "alena", "production"],
+    "link": "/projects/video-education",
+    "scheduledDate": "2026-10-29",
+    "scheduledTime": "12:30",
+    "durationMinutes": 60
+  },
+  {
+    "id": "competitor-benchmarking",
+    "title": "Бенчмаркинг бухгалтерских бюро (тарифы, офферы EN, каналы)",
+    "status": "backlog",
+    "priority": "high",
+    "assignee": "Human",
+    "project": "English Expansion",
+    "tags": ["research", "benchmarking", "pricing", "competitors"],
+    "notes": "Сбор базы конкурентов в Варшаве и Польше (русскоязычные демпингующие vs международные TMF/Accace/SDZLEGAL): анализ прайсинга, требований к KYC, SLA и каналов лидогенерации.",
+    "link": "/projects/competitor-benchmarking",
+    "scheduledDate": "2026-10-29",
+    "scheduledTime": "15:00",
+    "durationMinutes": 60
+  },
+  {
+    "id": "geo-technical-setup",
+    "title": "GEO: Внедрить llms.txt, Schema.org JSON-LD и robots.txt на imosta.pl",
+    "status": "in_progress",
+    "priority": "high",
+    "assignee": "Claude",
+    "project": "Marketing",
+    "tags": ["geo", "frontend", "imosta.pl", "schema"],
+    "link": "/projects/geo-ai-optimization",
+    "scheduledDate": "2026-10-29",
+    "scheduledTime": "14:00",
+    "durationMinutes": 60
+  },
+  {
+    "id": "geo-direct-faq",
+    "title": "GEO: Написать 15 фактологических Q&A для прямого цитирования ИИ",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Gemini",
+    "project": "Marketing",
+    "tags": ["geo", "content", "faq", "ksef"],
+    "notes": "Черновик — Gemini, проверка формулировок — Татьяна Бакаева.",
+    "link": "/projects/geo-ai-optimization"
+  },
+  {
+    "id": "geo-eeat-authors",
+    "title": "GEO: Оформить профили экспертов с сертификатами (E-E-A-T)",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "Marketing",
+    "tags": ["geo", "eeat", "trust"],
+    "link": "/projects/geo-ai-optimization"
+  },
+  {
+    "id": "geo-nap-citations",
+    "title": "GEO: Синхронизировать NAP и каталоги (Google Business, Panorama, Clutch)",
+    "status": "backlog",
+    "priority": "low",
+    "assignee": "Human",
+    "project": "Marketing",
+    "tags": ["geo", "citations", "clutch"],
+    "link": "/projects/geo-ai-optimization"
+  },
+  {
+    "id": "natariush-saska-parizhska",
+    "title": "НАТАРИУШЬ - Саска (Парижска)",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "Marketing",
+    "tags": [],
+    "scheduledDate": "2026-10-30",
+    "scheduledTime": "13:00",
+    "durationMinutes": 180
+  },
+  {
+    "id": "smm-posty-na-nedelyu",
+    "title": "SMM - Посты на неделю",
+    "status": "backlog",
+    "priority": "medium",
+    "assignee": "Human",
+    "project": "Marketing",
+    "tags": [],
+    "scheduledDate": "2026-10-29",
+    "scheduledTime": "11:00",
+    "durationMinutes": 60
+  }
+]
