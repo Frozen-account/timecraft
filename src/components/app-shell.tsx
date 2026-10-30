@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Bot, Brain, CalendarDays, Clapperboard, FolderOpen, KanbanSquare, LayoutDashboard, LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -66,6 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Logo />
           </Link>
         </div>
+        <WorkspaceSwitcher />
         <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:px-3 md:pb-0">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href);

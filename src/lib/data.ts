@@ -4,8 +4,10 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  ASSIGNEES, CONTENT_FORMATS, CONTENT_STATUSES, PRIORITIES, PROJECTS, SCOPES, STATUSES,
+  ASSIGNEES, CONTENT_FORMATS, CONTENT_STATUSES, PRIORITIES, PROJECTS, SCOPES, STATUSES, WORKSPACE_IDS,
+  projectWorkspace,
   type AgentAccess, type ContentItem, type MemoryDoc, type Project, type ProjectDoc, type Task,
+  type WorkspaceId,
 } from "./types";
 
 const ROOT = process.cwd();
@@ -58,13 +60,20 @@ export function getTasks(): Task[] {
     if (duration !== undefined && (!Number.isInteger(duration) || (duration as number) < 15 || (duration as number) > 720)) {
       fail(TASKS_FILE, i, `"durationMinutes" must be an integer between 15 and 720`);
     }
+    const project = oneOf(TASKS_FILE, i, r, "project", PROJECTS);
+    // Backward compatible: tasks.json entries written before workspaces inherit their direction's workspace.
+    const workspace =
+      r.workspace === undefined
+        ? projectWorkspace(project)
+        : oneOf<WorkspaceId>(TASKS_FILE, i, r, "workspace", WORKSPACE_IDS);
     return {
       id: str(TASKS_FILE, i, r, "id")!,
       title: str(TASKS_FILE, i, r, "title")!,
       status: oneOf(TASKS_FILE, i, r, "status", STATUSES),
       priority: oneOf(TASKS_FILE, i, r, "priority", PRIORITIES),
       assignee: oneOf(TASKS_FILE, i, r, "assignee", ASSIGNEES),
-      project: oneOf(TASKS_FILE, i, r, "project", PROJECTS),
+      project,
+      workspace,
       tags: tags as string[],
       notes: str(TASKS_FILE, i, r, "notes", true),
       due,
@@ -141,7 +150,17 @@ export function getMemoryDocs(): MemoryDoc[] {
       throw new Error(`${file}: "project" must be one of ${PROJECTS.join(", ")} (got "${meta.project}")`);
     }
     if (meta.updated && !/^\d{4}-\d{2}-\d{2}$/.test(meta.updated)) throw new Error(`${file}: "updated" must be YYYY-MM-DD`);
-    return { slug, title, summary: meta.summary || "", project: (meta.project as Project) || undefined, updated: meta.updated || undefined, body };
+    if (meta.workspace && !WORKSPACE_IDS.includes(meta.workspace as WorkspaceId)) {
+      throw new Error(`${file}: "workspace" must be one of ${WORKSPACE_IDS.join(", ")} (got "${meta.workspace}")`);
+    }
+    const project = (meta.project as Project) || undefined;
+    // An explicit `workspace:` wins; otherwise a project-scoped file inherits that direction's
+    // workspace, and a file with neither stays shared across all workspaces.
+    const workspace = (meta.workspace as WorkspaceId) || (project ? projectWorkspace(project) : undefined);
+    if (meta.workspace && project && meta.workspace !== projectWorkspace(project)) {
+      throw new Error(`${file}: "workspace" is "${meta.workspace}" but project "${project}" belongs to "${projectWorkspace(project)}"`);
+    }
+    return { slug, title, summary: meta.summary || "", project, workspace, updated: meta.updated || undefined, body };
   });
 }
 
@@ -167,11 +186,26 @@ export function getAgents(): AgentAccess[] {
     }
     const scopes = r.scopes;
     if (!Array.isArray(scopes) || scopes.some((s) => !SCOPES.includes(s))) fail(AGENTS_FILE, i, `"scopes" must be an array of ${SCOPES.join(", ")}`);
+    const rawWorkspaces = r.allowed_workspaces;
+    if (rawWorkspaces !== undefined && (!Array.isArray(rawWorkspaces) || rawWorkspaces.some((w) => w !== "*" && !WORKSPACE_IDS.includes(w as WorkspaceId)))) {
+      fail(AGENTS_FILE, i, `"allowed_workspaces" must be an array of "*" or ${WORKSPACE_IDS.join(", ")}`);
+    }
+    const typedProjects = projects as AgentAccess["projects"];
+    // Backward compatible and least-privilege: an entry without "allowed_workspaces" is scoped to
+    // the workspaces its own directions live in, so adding a workspace never widens existing access.
+    const allowedWorkspaces: AgentAccess["allowedWorkspaces"] =
+      rawWorkspaces !== undefined
+        ? (rawWorkspaces as AgentAccess["allowedWorkspaces"])
+        : typedProjects.includes("*")
+          ? ["*"]
+          : [...new Set(typedProjects.filter((p): p is Project => p !== "*").map(projectWorkspace))];
+    if (allowedWorkspaces.length === 0) fail(AGENTS_FILE, i, `"allowed_workspaces" must not be empty`);
     return {
       id,
       name: str(AGENTS_FILE, i, r, "name")!,
       description: str(AGENTS_FILE, i, r, "description", true),
-      projects: projects as AgentAccess["projects"],
+      projects: typedProjects,
+      allowedWorkspaces,
       scopes: scopes as AgentAccess["scopes"],
     };
   });

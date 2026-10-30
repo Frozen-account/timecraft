@@ -7,10 +7,13 @@ import {
   PanelRightOpen, Plus, RotateCcw, Trash2, X,
 } from "lucide-react";
 import { PRIORITY } from "@/components/kanban-board";
+import { useWorkspace } from "@/components/workspace-provider";
+import { WorkspaceBadge } from "@/components/workspace-switcher";
 import {
-  ASSIGNEES, PRIORITIES, PROJECTS, STATUSES,
-  type Assignee, type Priority, type Project, type Schedule, type Status, type Task,
+  ALL_WORKSPACES, ASSIGNEES, PRIORITIES, PROJECTS, STATUSES, projectWorkspace,
+  type Assignee, type Priority, type Project, type Schedule, type Status, type Task, type WorkspaceFilter,
 } from "@/lib/types";
+import { getWorkspace, inWorkspace } from "@/lib/workspaces";
 
 const START_HOUR = 8;
 const END_HOUR = 20;
@@ -112,6 +115,7 @@ function layoutDay(tasks: Task[]): Block[] {
 }
 
 export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
+  const { workspace } = useWorkspace();
   const [overrides, setOverrides] = useState<Overrides>({});
   const [loaded, setLoaded] = useState(false);
   const [anchor, setAnchor] = useState<Date | null>(null); // selected day; the week is derived from it
@@ -149,10 +153,14 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   }, [created, loaded]);
 
   const merged = useMemo(() => applyOverrides([...tasks, ...created], overrides), [tasks, created, overrides]);
+  // Rendering uses the active workspace only; `merged` stays complete so id generation, drag
+  // lookups and the tasks.json export never lose the tasks hidden by the current filter.
+  const scoped = useMemo(() => merged.filter((t) => inWorkspace(t.workspace, workspace)), [merged, workspace]);
+  const showWorkspace = workspace === ALL_WORKSPACES;
   const isNew = (id: string) => created.some((t) => t.id === id);
   const days = anchor ? (view === "week" ? Array.from({ length: 7 }, (_, i) => addDays(mondayOf(anchor), i)) : [anchor]) : [];
   const todayIso = now ? iso(now) : "";
-  const unscheduled = merged.filter((t) => !t.scheduledDate && t.status !== "done" && (allPriorities || t.priority === "high"));
+  const unscheduled = scoped.filter((t) => !t.scheduledDate && t.status !== "done" && (allPriorities || t.priority === "high"));
   const changeCount = Object.keys(overrides).length + created.length;
 
   const shift = (dir: number) => setAnchor((a) => (a ? addDays(a, dir * (view === "week" ? 7 : 1)) : a));
@@ -343,7 +351,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
               <div className="flex items-start justify-end px-2 py-2 text-right text-[10px] font-bold uppercase leading-tight tracking-wider text-ink-muted">Весь<br />день</div>
               {days.map((d) => {
                 const date = iso(d);
-                const allDay = merged.filter((t) => t.scheduledDate === date && !t.scheduledTime);
+                const allDay = scoped.filter((t) => t.scheduledDate === date && !t.scheduledTime);
                 const key = `allday:${date}`;
                 return (
                   <div
@@ -383,7 +391,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
               {days.map((d) => {
                 const key = iso(d);
                 const isToday = key === todayIso;
-                const blocks = layoutDay(merged.filter((t) => t.scheduledDate === key && t.scheduledTime));
+                const blocks = layoutDay(scoped.filter((t) => t.scheduledDate === key && t.scheduledTime));
                 const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
                 const showNow = isToday && nowMin >= START_HOUR * 60 && nowMin <= END_HOUR * 60;
                 const slotPrefix = `slot:${key}:`;
@@ -448,7 +456,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                             height: Math.max(bottom - top - 2, 22),
                             left: `calc(${(b.lane / b.lanes) * 100}% + 2px)`,
                             width: `calc(${100 / b.lanes}% - 4px)`,
-                            borderLeftColor: "var(--color-brand)",
+                            borderLeftColor: getWorkspace(b.task.workspace).color,
                           }}
                         >
                           <span className="flex items-center gap-1 text-[11px] font-semibold text-ink-muted tabular-nums">
@@ -461,6 +469,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                             {initiative && initiative !== projectLabel && (
                               <span className="rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line">{initiative}</span>
                             )}
+                            {showWorkspace && <WorkspaceBadge id={b.task.workspace} />}
                             {isNew(b.task.id) && <NewBadge />}
                           </span>
                         </button>
@@ -532,7 +541,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
         />
       )}
 
-      {creating && <CreateTaskDialog initial={creating} onClose={() => setCreating(null)} onCreate={createTask} />}
+      {creating && <CreateTaskDialog initial={creating} workspace={workspace} onClose={() => setCreating(null)} onCreate={createTask} />}
     </div>
   );
 }
@@ -656,13 +665,20 @@ function ScheduleDialog({ task, defaultDate, overridden, onClose, onSave, onRese
   );
 }
 
-function CreateTaskDialog({ initial, onClose, onCreate }: {
+function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
   initial: Schedule;
+  workspace: WorkspaceFilter;
   onClose: () => void;
   onCreate: (task: Omit<Task, "id">) => void;
 }) {
+  // Only directions in the active workspace can be picked, so a new task cannot land in a
+  // workspace the user is not looking at. In "all" mode every direction is offered.
+  const projectOptions = useMemo(
+    () => PROJECTS.filter((p) => inWorkspace(projectWorkspace(p), workspace)),
+    [workspace],
+  );
   const [title, setTitle] = useState("");
-  const [project, setProject] = useState<Project>("Marketing");
+  const [project, setProject] = useState<Project>(projectOptions[0] ?? "Marketing");
   const [priority, setPriority] = useState<Priority>("medium");
   const [status, setStatus] = useState<Status>("backlog");
   const [assignee, setAssignee] = useState<Assignee>("Human");
@@ -692,6 +708,7 @@ function CreateTaskDialog({ initial, onClose, onCreate }: {
             priority,
             assignee,
             project,
+            workspace: projectWorkspace(project),
             tags: [...new Set(tags.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean))],
             ...(notes.trim() && { notes: notes.trim() }),
             ...(date && { scheduledDate: date }),
@@ -704,7 +721,7 @@ function CreateTaskDialog({ initial, onClose, onCreate }: {
         </label>
         <label className={labelCls}>Проект
           <select value={project} onChange={(e) => setProject(e.target.value as Project)} className={`mt-1 ${fieldCls}`}>
-            {PROJECTS.map((p) => <option key={p}>{p}</option>)}
+            {projectOptions.map((p) => <option key={p}>{p}</option>)}
           </select>
         </label>
         <label className={labelCls}>Исполнитель

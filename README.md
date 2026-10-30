@@ -55,6 +55,27 @@ curl -H "Authorization: Bearer $AGENT_TOKEN_CLAUDE" "https://timecraft.pro/api/c
 - Memory files without a `project` are shared with every agent that has the `memory` scope.
 - Wrong or missing token → 401; a project outside the agent's list → 403.
 
+## Workspaces
+
+Each business entity (IMOSTA, Traff.org, BizBroker, Personal) is a workspace, so directions,
+tasks, memory and agent access stay partitioned while `Все воркспейсы` keeps the unified view.
+
+| Where | How the workspace is set |
+| --- | --- |
+| `src/data/workspaces.json` | the registry: `id`, `name`, `icon`, `color` (validated at build) |
+| `src/lib/types.ts` | `PROJECT_WORKSPACE` maps every direction to a workspace — exhaustive, so a new direction without one is a compile error |
+| `backlog/tasks.json` | `"workspace": "imosta"`; omit it and the task inherits its direction's workspace |
+| `memory/*.md` | `workspace:` frontmatter; inherited from `project`, and shared across workspaces when neither is set |
+| `agents/access.json` | `allowed_workspaces: ["imosta"]` or `["*"]`; omit it and the agent is scoped to the workspaces of its own directions |
+
+The switcher sits in the sidebar and keeps its choice in `localStorage` plus the `?workspace=`
+search param, so a link opens in the workspace it names. Filtering runs client-side on purpose —
+reading the param on the server would opt every page out of static prerendering.
+
+Agents pass `?workspace=<id>` to `/api/context`. Workspace and project scoping are orthogonal and
+both are enforced: unknown id → 400, a workspace outside `allowed_workspaces` → 403, and a
+`?project=` that lives in a different workspace → 400.
+
 ## Authentication
 
 Team members sign in at `/login` with their Supabase email + password. `src/proxy.ts` gates every

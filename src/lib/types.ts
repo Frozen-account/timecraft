@@ -1,3 +1,17 @@
+// Workspaces isolate business entities. "all" is a virtual UI/API state, never stored on an entity.
+export const WORKSPACE_IDS = ["imosta", "traff", "bizbroker", "personal"] as const;
+export const ALL_WORKSPACES = "all";
+
+export type WorkspaceId = (typeof WORKSPACE_IDS)[number];
+export type WorkspaceFilter = WorkspaceId | typeof ALL_WORKSPACES;
+
+export interface Workspace {
+  id: WorkspaceId;
+  name: string;
+  icon: string; // emoji
+  color: string; // #rrggbb — accent for badges and calendar blocks
+}
+
 export const STATUSES = ["backlog", "in_progress", "review", "done"] as const;
 export const PRIORITIES = ["high", "medium", "low"] as const;
 export const ASSIGNEES = ["Claude", "Gemini", "Human"] as const;
@@ -8,6 +22,21 @@ export type Priority = (typeof PRIORITIES)[number];
 export type Assignee = (typeof ASSIGNEES)[number];
 export type Project = (typeof PROJECTS)[number];
 
+// Which workspace each direction belongs to. `satisfies` makes this exhaustive: adding a
+// direction to PROJECTS without assigning a workspace is a compile error.
+export const PROJECT_WORKSPACE = {
+  JDG: "imosta",
+  Spolka: "imosta",
+  "Meta Ads": "imosta",
+  Webinar: "imosta",
+  Forms: "imosta",
+  "English Expansion": "imosta",
+  "Video Education": "imosta",
+  Marketing: "imosta",
+} as const satisfies Record<Project, WorkspaceId>;
+
+export const projectWorkspace = (project: Project): WorkspaceId => PROJECT_WORKSPACE[project];
+
 export interface Task {
   id: string;
   title: string;
@@ -15,6 +44,7 @@ export interface Task {
   priority: Priority;
   assignee: Assignee;
   project: Project;
+  workspace: WorkspaceId; // defaults to the direction's workspace when absent in tasks.json
   tags: string[];
   notes?: string;
   due?: string; // YYYY-MM or YYYY-MM-DD
@@ -70,6 +100,7 @@ export interface MemoryDoc {
   title: string;
   summary: string;
   project?: Project; // omitted = shared with every agent that has the "memory" scope
+  workspace?: WorkspaceId; // omitted = shared across all workspaces; derived from `project` when set
   updated?: string; // YYYY-MM-DD
   body: string;
 }
@@ -83,5 +114,6 @@ export interface AgentAccess {
   name: string;
   description?: string;
   projects: (Project | "*")[];
+  allowedWorkspaces: (WorkspaceId | "*")[]; // JSON key: allowed_workspaces
   scopes: Scope[];
 }

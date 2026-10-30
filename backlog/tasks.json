@@ -6,6 +6,7 @@
     "priority": "high",
     "assignee": "Claude",
     "project": "Forms",
+    "workspace": "imosta",
     "tags": ["utm", "telegram", "meta-ads-readiness"],
     "notes": "Merged to main in both repos (jdg acd7674, landing 44b37d8). Remaining: live test lead with UTMs after deploy."
   },
@@ -16,6 +17,7 @@
     "priority": "high",
     "assignee": "Gemini",
     "project": "Meta Ads",
+    "workspace": "imosta",
     "tags": ["copy", "creative-brief", "ru", "en"]
   },
   {
@@ -25,6 +27,7 @@
     "priority": "medium",
     "assignee": "Gemini",
     "project": "JDG",
+    "workspace": "imosta",
     "tags": ["video", "script", "screen-recording"]
   },
   {
@@ -34,6 +37,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "Forms",
+    "workspace": "imosta",
     "tags": ["vercel", "deployment-protection"]
   },
   {
@@ -43,6 +47,7 @@
     "priority": "low",
     "assignee": "Human",
     "project": "JDG",
+    "workspace": "imosta",
     "tags": ["pl", "localization"],
     "due": "2026-12"
   },
@@ -53,6 +58,7 @@
     "priority": "high",
     "assignee": "Human",
     "project": "English Expansion",
+    "workspace": "imosta",
     "tags": ["strategy", "hiring", "en", "spolka", "startups"],
     "notes": "Offer from 1,200 PLN/mo. Confirm SLA vs statutory deadlines with Head of Accounting.",
     "link": "/projects/english-expansion"
@@ -64,6 +70,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "Forms",
+    "workspace": "imosta",
     "tags": ["video", "education", "support"],
     "link": "/projects/video-education"
   },
@@ -74,6 +81,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "JDG",
+    "workspace": "imosta",
     "tags": ["video", "zus", "jdg"],
     "link": "/projects/video-education"
   },
@@ -84,6 +92,7 @@
     "priority": "high",
     "assignee": "Human",
     "project": "Spolka",
+    "workspace": "imosta",
     "tags": ["video", "ksef", "compliance"],
     "notes": "Риски KSeF и ссылку на art. 106e ust. 1 pkt 7 согласовать с Татьяной до съёмки.",
     "link": "/projects/video-education"
@@ -95,6 +104,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "Spolka",
+    "workspace": "imosta",
     "tags": ["video", "vat", "import"],
     "link": "/projects/video-education"
   },
@@ -105,6 +115,7 @@
     "priority": "high",
     "assignee": "Human",
     "project": "Video Education",
+    "workspace": "imosta",
     "tags": ["video", "reels", "alena", "production"],
     "link": "/projects/video-education",
     "scheduledDate": "2026-10-29",
@@ -118,6 +129,7 @@
     "priority": "high",
     "assignee": "Human",
     "project": "English Expansion",
+    "workspace": "imosta",
     "tags": ["research", "benchmarking", "pricing", "competitors"],
     "notes": "Сбор базы конкурентов в Варшаве и Польше (русскоязычные демпингующие vs международные TMF/Accace/SDZLEGAL): анализ прайсинга, требований к KYC, SLA и каналов лидогенерации.",
     "link": "/projects/competitor-benchmarking",
@@ -132,6 +144,7 @@
     "priority": "high",
     "assignee": "Claude",
     "project": "Marketing",
+    "workspace": "imosta",
     "tags": ["geo", "frontend", "imosta.pl", "schema"],
     "link": "/projects/geo-ai-optimization",
     "scheduledDate": "2026-10-29",
@@ -145,6 +158,7 @@
     "priority": "medium",
     "assignee": "Gemini",
     "project": "Marketing",
+    "workspace": "imosta",
     "tags": ["geo", "content", "faq", "ksef"],
     "notes": "Черновик — Gemini, проверка формулировок — Татьяна Бакаева.",
     "link": "/projects/geo-ai-optimization"
@@ -156,6 +170,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "Marketing",
+    "workspace": "imosta",
     "tags": ["geo", "eeat", "trust"],
     "link": "/projects/geo-ai-optimization"
   },
@@ -166,6 +181,7 @@
     "priority": "low",
     "assignee": "Human",
     "project": "Marketing",
+    "workspace": "imosta",
     "tags": ["geo", "citations", "clutch"],
     "link": "/projects/geo-ai-optimization"
   },
@@ -176,6 +192,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "Marketing",
+    "workspace": "imosta",
     "tags": [],
     "scheduledDate": "2026-10-30",
     "scheduledTime": "13:00",
@@ -188,6 +205,7 @@
     "priority": "medium",
     "assignee": "Human",
     "project": "Marketing",
+    "workspace": "imosta",
     "tags": [],
     "scheduledDate": "2026-10-29",
     "scheduledTime": "11:00",

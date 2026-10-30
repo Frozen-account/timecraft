@@ -1,0 +1,6 @@
+[
+  { "id": "imosta",    "name": "IMOSTA",    "icon": "🏛️", "color": "#7c3aed" },
+  { "id": "traff",     "name": "Traff.org", "icon": "📈", "color": "#059669" },
+  { "id": "bizbroker", "name": "BizBroker", "icon": "🤝", "color": "#d97706" },
+  { "id": "personal",  "name": "Personal",  "icon": "🌱", "color": "#0284c7" }
+]

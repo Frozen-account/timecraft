@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Bot, CalendarClock, ExternalLink, Sparkles, User } from "lucide-react";
-import { ASSIGNEES, PROJECTS, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
+import { useWorkspace } from "@/components/workspace-provider";
+import { WorkspaceBadge } from "@/components/workspace-switcher";
+import { ALL_WORKSPACES, ASSIGNEES, PROJECTS, projectWorkspace, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
+import { inWorkspace } from "@/lib/workspaces";
 
 const COLUMNS: { id: Status; title: string }[] = [
   { id: "backlog", title: "Backlog" },
@@ -46,22 +49,39 @@ function formatDue(due: string) {
 }
 
 export function KanbanBoard({ tasks }: { tasks: Task[] }) {
+  const { workspace } = useWorkspace();
   const [assignee, setAssignee] = useState<Assignee | "all">("all");
   const [project, setProject] = useState<Project | "all">("all");
+  const showWorkspace = workspace === ALL_WORKSPACES;
+
+  // Only directions belonging to the active workspace are offered in the project filter.
+  const projectOptions = useMemo(
+    () => PROJECTS.filter((p) => inWorkspace(projectWorkspace(p), workspace)),
+    [workspace],
+  );
+
+  // Derived, not synced: a direction filter left over from another workspace would silently
+  // empty the board, so it reads as "all" until the user picks one that exists here.
+  const activeProject = project !== "all" && projectOptions.includes(project) ? project : "all";
 
   const visible = useMemo(
     () =>
       tasks
-        .filter((t) => (assignee === "all" || t.assignee === assignee) && (project === "all" || t.project === project))
+        .filter(
+          (t) =>
+            inWorkspace(t.workspace, workspace) &&
+            (assignee === "all" || t.assignee === assignee) &&
+            (activeProject === "all" || t.project === activeProject),
+        )
         .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]),
-    [tasks, assignee, project],
+    [tasks, assignee, activeProject, workspace],
   );
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <FilterSelect label="Исполнитель" value={assignee} options={ASSIGNEES} onChange={(v) => setAssignee(v as Assignee | "all")} />
-        <FilterSelect label="Проект" value={project} options={PROJECTS} onChange={(v) => setProject(v as Project | "all")} />
+        <FilterSelect label="Проект" value={activeProject} options={projectOptions} onChange={(v) => setProject(v as Project | "all")} />
       </div>
 
       <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">
@@ -74,7 +94,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
                 <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-bold text-ink-muted ring-1 ring-line">{items.length}</span>
               </header>
               <div className="flex min-h-24 flex-1 flex-col gap-2.5">
-                {items.map((task) => <TaskCard key={task.id} task={task} />)}
+                {items.map((task) => <TaskCard key={task.id} task={task} showWorkspace={showWorkspace} />)}
                 {items.length === 0 && (
                   <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-ink-muted">Пусто</p>
                 )}
@@ -87,12 +107,17 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({ task, showWorkspace }: { task: Task; showWorkspace: boolean }) {
   const a = ASSIGNEE_STYLE[task.assignee];
   const AssigneeIcon = a.icon;
   const pr = PRIORITY[task.priority];
   return (
     <article className="rounded-xl border border-line bg-surface p-3.5 shadow-sm transition-all duration-200 hover:shadow-md">
+      {showWorkspace && (
+        <p className="mb-2">
+          <WorkspaceBadge id={task.workspace} />
+        </p>
+      )}
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="rounded-md bg-ink px-2 py-0.5 text-xs font-semibold text-white">{task.project}</span>
         <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${pr.text}`}>

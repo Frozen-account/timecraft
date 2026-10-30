@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
+import { WorkspaceProvider } from "@/components/workspace-provider";
 import "./globals.css";
 
 const montserrat = Montserrat({
@@ -21,7 +22,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ru" className={`${montserrat.variable} h-full antialiased`}>
       <body className="min-h-full font-sans">
-        <AppShell>{children}</AppShell>
+        <WorkspaceProvider>
+          <AppShell>{children}</AppShell>
+        </WorkspaceProvider>
       </body>
     </html>
   );
