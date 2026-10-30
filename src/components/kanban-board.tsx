@@ -3,9 +3,12 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Bot, CalendarClock, ExternalLink, Sparkles, User } from "lucide-react";
+import { NewTaskButton } from "@/components/new-task-button";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import { ALL_WORKSPACES, ASSIGNEES, PROJECTS, projectWorkspace, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
+import { PRIORITY } from "@/lib/labels";
+import { useTaskDrafts } from "@/lib/task-drafts";
 import { inWorkspace } from "@/lib/workspaces";
 
 const COLUMNS: { id: Status; title: string }[] = [
@@ -19,12 +22,6 @@ const ASSIGNEE_STYLE: Record<Assignee, { cls: string; icon: typeof Bot }> = {
   Claude: { cls: "bg-orange-50 text-orange-800 ring-orange-200", icon: Bot },
   Gemini: { cls: "bg-blue-50 text-blue-800 ring-blue-200", icon: Sparkles },
   Human: { cls: "bg-muted text-ink ring-line", icon: User },
-};
-
-export const PRIORITY: Record<Priority, { label: string; dot: string; text: string }> = {
-  high: { label: "High", dot: "bg-red-600", text: "text-red-700" },
-  medium: { label: "Medium", dot: "bg-amber-500", text: "text-amber-700" },
-  low: { label: "Low", dot: "bg-gray-400", text: "text-ink-muted" },
 };
 
 const PRIORITY_ORDER: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
@@ -48,8 +45,10 @@ function formatDue(due: string) {
     : date.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
 }
 
-export function KanbanBoard({ tasks }: { tasks: Task[] }) {
+export function KanbanBoard({ tasks, existingIds = [] }: { tasks: Task[]; existingIds?: string[] }) {
   const { workspace } = useWorkspace();
+  // Drafts created in this browser sit alongside the committed tasks from backlog/tasks.json.
+  const drafts = useTaskDrafts();
   const [assignee, setAssignee] = useState<Assignee | "all">("all");
   const [project, setProject] = useState<Project | "all">("all");
   const showWorkspace = workspace === ALL_WORKSPACES;
@@ -64,9 +63,12 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   // empty the board, so it reads as "all" until the user picks one that exists here.
   const activeProject = project !== "all" && projectOptions.includes(project) ? project : "all";
 
+  const all = useMemo(() => [...tasks, ...drafts], [tasks, drafts]);
+  const draftIds = useMemo(() => new Set(drafts.map((t) => t.id)), [drafts]);
+
   const visible = useMemo(
     () =>
-      tasks
+      all
         .filter(
           (t) =>
             inWorkspace(t.workspace, workspace) &&
@@ -74,7 +76,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
             (activeProject === "all" || t.project === activeProject),
         )
         .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]),
-    [tasks, assignee, activeProject, workspace],
+    [all, assignee, activeProject, workspace],
   );
 
   return (
@@ -82,6 +84,12 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <FilterSelect label="Исполнитель" value={assignee} options={ASSIGNEES} onChange={(v) => setAssignee(v as Assignee | "all")} />
         <FilterSelect label="Проект" value={activeProject} options={projectOptions} onChange={(v) => setProject(v as Project | "all")} />
+        {drafts.length > 0 && (
+          <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+            Новых задач только в этом браузере: {drafts.length}
+          </span>
+        )}
+        <NewTaskButton existingIds={existingIds} variant="subtle" className="ml-auto" />
       </div>
 
       <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">
@@ -94,7 +102,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
                 <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-bold text-ink-muted ring-1 ring-line">{items.length}</span>
               </header>
               <div className="flex min-h-24 flex-1 flex-col gap-2.5">
-                {items.map((task) => <TaskCard key={task.id} task={task} showWorkspace={showWorkspace} />)}
+                {items.map((task) => <TaskCard key={task.id} task={task} showWorkspace={showWorkspace} isDraft={draftIds.has(task.id)} />)}
                 {items.length === 0 && (
                   <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-ink-muted">Пусто</p>
                 )}
@@ -107,15 +115,20 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function TaskCard({ task, showWorkspace }: { task: Task; showWorkspace: boolean }) {
+function TaskCard({ task, showWorkspace, isDraft }: { task: Task; showWorkspace: boolean; isDraft: boolean }) {
   const a = ASSIGNEE_STYLE[task.assignee];
   const AssigneeIcon = a.icon;
   const pr = PRIORITY[task.priority];
   return (
     <article className="rounded-xl border border-line bg-surface p-3.5 shadow-sm transition-all duration-200 hover:shadow-md">
-      {showWorkspace && (
-        <p className="mb-2">
-          <WorkspaceBadge id={task.workspace} />
+      {(showWorkspace || isDraft) && (
+        <p className="mb-2 flex flex-wrap items-center gap-1.5">
+          {showWorkspace && <WorkspaceBadge id={task.workspace} />}
+          {isDraft && (
+            <span className="rounded bg-amber-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-amber-800">
+              не в git
+            </span>
+          )}
         </p>
       )}
       <div className="mb-2 flex items-center justify-between gap-2">

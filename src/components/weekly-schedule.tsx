@@ -6,7 +6,9 @@ import {
   CalendarPlus, ChevronLeft, ChevronRight, ClipboardCopy, Clock, ExternalLink, Inbox, PanelRightClose,
   PanelRightOpen, Plus, RotateCcw, Trash2, X,
 } from "lucide-react";
-import { PRIORITY } from "@/components/kanban-board";
+import { DialogFrame, fieldCls } from "@/components/dialog-frame";
+import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
+import { addDraft, clearDrafts, removeDraft, updateDraft, useTaskDrafts } from "@/lib/task-drafts";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import {
@@ -19,10 +21,8 @@ const START_HOUR = 8;
 const END_HOUR = 20;
 const HOUR_PX = 64;
 const STORAGE_KEY = "timecraft:schedule:v1";
-const CREATED_KEY = "timecraft:schedule:new-tasks:v1";
 // Hover-only controls stay visible on touch screens, which have no hover.
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100";
-const STATUS_LABEL: Record<Status, string> = { backlog: "Backlog", in_progress: "In Progress", review: "Review", done: "Done" };
 const TIME_OPTIONS = Array.from({ length: (END_HOUR - START_HOUR) * 2 }, (_, i) => {
   const m = START_HOUR * 60 + i * 30;
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -62,22 +62,6 @@ function saveJson(key: string, value: unknown) {
 function loadOverrides(): Overrides {
   const data = loadJson(STORAGE_KEY);
   return data && typeof data === "object" && !Array.isArray(data) ? (data as Overrides) : {};
-}
-
-function loadCreated(): Task[] {
-  const data = loadJson(CREATED_KEY);
-  return Array.isArray(data) ? data.filter((t) => typeof t?.id === "string" && typeof t?.title === "string" && Array.isArray(t?.tags)) : [];
-}
-
-// Readable, unique ids for tasks.json: "Созвон с клиентом UK" -> "sozvon-s-klientom-uk".
-const CYR = "абвгдеёжзийклмнопрстуфхцчшщъыьэюяіїєґ";
-const LAT = ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s", "t", "u", "f", "h", "ts", "ch", "sh", "sch", "", "y", "", "e", "yu", "ya", "i", "yi", "ye", "g"];
-function makeId(title: string, taken: Set<string>) {
-  const base = [...title.toLowerCase()].map((c) => (CYR.includes(c) ? LAT[CYR.indexOf(c)] : c)).join("")
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "") || "task";
-  let id = base;
-  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
-  return id;
 }
 
 function applyOverrides(tasks: Task[], overrides: Overrides): Task[] {
@@ -122,7 +106,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   const [now, setNow] = useState<Date | null>(null);
   const [view, setView] = useState<"week" | "day">("week");
   const [editing, setEditing] = useState<Task | null>(null);
-  const [created, setCreated] = useState<Task[]>([]); // tasks added from the calendar, not yet in tasks.json
+  const created = useTaskDrafts(); // shared with the board: tasks not yet in tasks.json
   const [creating, setCreating] = useState<Schedule | null>(null); // prefill for the "new task" dialog
   const [trayOpen, setTrayOpen] = useState(true);
   const [allPriorities, setAllPriorities] = useState(false);
@@ -138,7 +122,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
     setNow(d);
     setAnchor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
     setOverrides(loadOverrides());
-    setCreated(loadCreated());
     setLoaded(true);
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
@@ -147,10 +130,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   useEffect(() => {
     if (loaded) saveJson(STORAGE_KEY, overrides);
   }, [overrides, loaded]);
-
-  useEffect(() => {
-    if (loaded) saveJson(CREATED_KEY, created);
-  }, [created, loaded]);
 
   const merged = useMemo(() => applyOverrides([...tasks, ...created], overrides), [tasks, created, overrides]);
   // Rendering uses the active workspace only; `merged` stays complete so id generation, drag
@@ -169,7 +148,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   // New tasks are edited in place; for tasks.json tasks, a change that lands back on the file value is not a pending change.
   const setSchedule = (id: string, s: Schedule | null) => {
     if (isNew(id)) {
-      setCreated((c) => c.map((t) => (t.id === id ? { ...t, scheduledDate: s?.scheduledDate, scheduledTime: s?.scheduledTime, durationMinutes: s?.durationMinutes } : t)));
+      updateDraft(id, { scheduledDate: s?.scheduledDate, scheduledTime: s?.scheduledTime, durationMinutes: s?.durationMinutes });
       return;
     }
     setOverrides((o) => {
@@ -188,8 +167,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   const resetTask = (id: string) => setOverrides((o) => { const n = { ...o }; delete n[id]; return n; });
 
   const createTask = (draft: Omit<Task, "id">) => {
-    const task = { id: makeId(draft.title, new Set(merged.map((t) => t.id))), ...draft };
-    setCreated((c) => [...c, task]);
+    const task = addDraft(draft, merged.map((t) => t.id));
     setCreating(null);
     if (task.scheduledDate) {
       const [y, m, d] = task.scheduledDate.split("-").map(Number);
@@ -303,7 +281,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
               onClick={() => {
                 if (!window.confirm("Отменить все локальные изменения расписания и удалить новые задачи?")) return;
                 setOverrides({});
-                setCreated([]);
+                clearDrafts();
               }}
               className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-semibold hover:bg-amber-100"
             >
@@ -537,7 +515,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
           onClose={() => setEditing(null)}
           onSave={(s) => { setSchedule(editing.id, s); setEditing(null); }}
           onReset={() => { resetTask(editing.id); setEditing(null); }}
-          onDelete={isNew(editing.id) ? () => { setCreated((c) => c.filter((t) => t.id !== editing.id)); setEditing(null); } : undefined}
+          onDelete={isNew(editing.id) ? () => { removeDraft(editing.id); setEditing(null); } : undefined}
         />
       )}
 
@@ -550,30 +528,7 @@ function NewBadge() {
   return <span className="shrink-0 rounded bg-amber-100 px-1 py-px text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">новая</span>;
 }
 
-const fieldCls = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand";
 const labelCls = "text-xs font-semibold text-ink-muted";
-
-function DialogFrame({ labelledBy, onClose, children }: { labelledBy: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border-t-4 border-t-brand bg-surface p-5 shadow-2xl"
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 function ScheduleDialog({ task, defaultDate, overridden, onClose, onSave, onReset, onDelete }: {
   task: Task;
