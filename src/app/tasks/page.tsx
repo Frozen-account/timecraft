@@ -5,17 +5,21 @@ import { NewTaskButton } from "@/components/new-task-button";
 import { getTasks } from "@/lib/data";
 
 export const metadata: Metadata = { title: "Задачи · TimeCraft" };
+// Tasks come from Postgres per request, so this route blocks on that read instead of being
+// prerendered. Everything here is behind the auth gate, so there is no public page-speed cost;
+// the alternative is streaming the board inside <Suspense> with a skeleton.
+export const instant = false;
 
-export default function TasksPage() {
-  const tasks = getTasks();
-  const existingIds = tasks.map((t) => t.id);
+
+export default async function TasksPage() {
+  const tasks = await getTasks();
 
   return (
     <>
       <PageHeader title="Задачи" subtitle="Источник — backlog/tasks.json в репозитории. Чтобы изменить задачу, отредактируйте файл и сделайте коммит.">
-        <NewTaskButton existingIds={existingIds} />
+        <NewTaskButton />
       </PageHeader>
-      <KanbanBoard tasks={tasks} existingIds={existingIds} />
+      <KanbanBoard tasks={tasks} />
     </>
   );
 }

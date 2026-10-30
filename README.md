@@ -5,7 +5,7 @@ Production: **https://timecraft.pro** (alias: timecraft.com).
 
 Migrated from the IMOSTA marketing hub; the IMOSTA data (tasks, project docs, `IMOSTA-SSOT.md`) came along as the first workspace.
 
-- `backlog/tasks.json` — tasks
+- `backlog/tasks.json` — seeded task history (Postgres is the live source; see **Tasks**)
 - `content/calendar.json` — content plan
 - `projects/*.md` — project documentation
 - `memory/*.md` — long-lived context for agents (format: `memory/README.md`)
@@ -17,9 +17,9 @@ Migrated from the IMOSTA marketing hub; the IMOSTA data (tasks, project docs, `I
 
 | Route        | View                                   | Data source            |
 | ------------ | -------------------------------------- | ---------------------- |
-| `/`          | Dashboard: open work, next slot and memory per project | `backlog/tasks.json`, `memory/` |
-| `/tasks`     | Kanban: Backlog → In Progress → Review → Done | `backlog/tasks.json` |
-| `/schedule`  | Weekly time-blocking calendar: drag & drop, quick task creation | `backlog/tasks.json` + browser-local changes |
+| `/`          | Dashboard: open work, next slot and memory per project | Postgres `tasks`, `memory/` |
+| `/tasks`     | Kanban: Backlog → In Progress → Review → Done, create tasks | Postgres `tasks` |
+| `/schedule`  | Weekly time-blocking calendar: drag & drop, quick task creation | Postgres `tasks` + browser-local schedule changes |
 | `/projects`  | Markdown documentation reader          | `projects/*.md`        |
 | `/memory`    | Memory files, grouped by project, with the agents that can read each | `memory/*.md` |
 | `/agents`    | Agent access matrix and API usage      | `agents/access.json`   |
@@ -64,7 +64,7 @@ tasks, memory and agent access stay partitioned while `Все воркспейс
 | --- | --- |
 | `src/data/workspaces.json` | the registry: `id`, `name`, `icon`, `color` (validated at build) |
 | `src/lib/types.ts` | `PROJECT_WORKSPACE` maps every direction to a workspace — exhaustive, so a new direction without one is a compile error |
-| `backlog/tasks.json` | `"workspace": "imosta"`; omit it and the task inherits its direction's workspace |
+| Postgres `tasks` | stores `direction` only; the workspace is derived through `directions.workspace_id` |
 | `memory/*.md` | `workspace:` frontmatter; inherited from `project`, and shared across workspaces when neither is set |
 | `agents/access.json` | `allowed_workspaces: ["imosta"]` or `["*"]`; omit it and the agent is scoped to the workspaces of its own directions |
 
@@ -75,6 +75,25 @@ reading the param on the server would opt every page out of static prerendering.
 Agents pass `?workspace=<id>` to `/api/context`. Workspace and project scoping are orthogonal and
 both are enforced: unknown id → 400, a workspace outside `allowed_workspaces` → 403, and a
 `?project=` that lives in a different workspace → 400.
+
+## Tasks
+
+Tasks live in Postgres (Supabase) and are created from the UI — **+ Создать задачу** on `/tasks`
+writes through `POST /api/tasks` as the signed-in user, so RLS applies and `created_by` is set.
+`backlog/tasks.json` is the seeded history and the fallback when the database is unreachable: a
+read failure degrades to the last committed snapshot instead of an empty board.
+
+```bash
+supabase db push                    # apply supabase/migrations/
+node scripts/seed-tasks.mjs         # one-off import of backlog/tasks.json (idempotent)
+```
+
+A task stores only its `direction`; the workspace comes from `directions.workspace_id` through the
+`tasks_with_workspace` view, so a task cannot contradict its direction. The pages that read tasks
+(`/`, `/tasks`, `/schedule`, `/agents`) are therefore rendered per request rather than prerendered.
+
+Editing an existing task still means editing the row (dashboard or SQL); only creation is wired to
+the UI so far. Calendar drag & drop remains browser-local.
 
 ## Authentication
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { DialogFrame, fieldCls, labelCls } from "@/components/dialog-frame";
 import { WorkspaceAvatar } from "@/components/workspace-switcher";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
@@ -18,7 +18,8 @@ export function TaskFormDialog({
 }: {
   workspace: WorkspaceFilter;
   onClose: () => void;
-  onCreate: (draft: Omit<Task, "id">) => void;
+  /** Resolves to an error message to display, or null once the task is saved. */
+  onCreate: (draft: Omit<Task, "id">) => Promise<string | null>;
 }) {
   // Only directions in the active workspace are offered, so a task cannot land somewhere
   // the user is not looking at. In the aggregate view every direction is available.
@@ -34,14 +35,16 @@ export function TaskFormDialog({
   const [assignee, setAssignee] = useState<Assignee>("Human");
   const [due, setDue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
   // The workspace is never picked by hand: a direction belongs to exactly one workspace
   // (PROJECT_WORKSPACE), so deriving it here is what keeps the two from drifting apart.
   const derivedWorkspace = projectWorkspace(project);
   const ws = getWorkspace(derivedWorkspace);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (pending) return;
     if (!title.trim()) {
       setError("Введите название задачи.");
       return;
@@ -51,7 +54,8 @@ export function TaskFormDialog({
       setError("Срок должен быть в формате ГГГГ-ММ-ДД.");
       return;
     }
-    onCreate({
+    setPending(true);
+    const message = await onCreate({
       title: title.trim(),
       status,
       priority,
@@ -61,6 +65,11 @@ export function TaskFormDialog({
       tags: [],
       ...(due && { due }),
     });
+    // On success the parent closes the dialog; on failure keep the input so nothing is retyped.
+    if (message) {
+      setError(message);
+      setPending(false);
+    }
   }
 
   return (
@@ -140,15 +149,20 @@ export function TaskFormDialog({
         {error && <p role="alert" className="text-sm font-semibold text-red-700 sm:col-span-2">{error}</p>}
 
         <p className="-mt-1 text-xs text-ink-subtle sm:col-span-2">
-          Задача сохранится только в этом браузере. Чтобы её увидела команда, скопируйте JSON в{" "}
-          <code className="text-[11px]">backlog/tasks.json</code> и закоммитьте — кнопка на странице «Календарь».
+          Задача сохраняется в Supabase и сразу видна команде и агентам через{" "}
+          <code className="text-[11px]">/api/context</code>.
         </p>
 
         <div className="mt-2 flex items-center gap-2 sm:col-span-2">
-          <button type="button" onClick={onClose} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink">
+          <button type="button" onClick={onClose} disabled={pending} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink disabled:opacity-60">
             Отмена
           </button>
-          <button type="submit" className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md">
+          <button
+            type="submit"
+            disabled={pending}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md disabled:opacity-60"
+          >
+            {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
             Создать
           </button>
         </div>

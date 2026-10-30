@@ -45,7 +45,7 @@ function formatDue(due: string) {
     : date.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
 }
 
-export function KanbanBoard({ tasks, existingIds = [] }: { tasks: Task[]; existingIds?: string[] }) {
+export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   const { workspace } = useWorkspace();
   // Drafts created in this browser sit alongside the committed tasks from backlog/tasks.json.
   const drafts = useTaskDrafts();
@@ -86,10 +86,10 @@ export function KanbanBoard({ tasks, existingIds = [] }: { tasks: Task[]; existi
         <FilterSelect label="Проект" value={activeProject} options={projectOptions} onChange={(v) => setProject(v as Project | "all")} />
         {drafts.length > 0 && (
           <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
-            Новых задач только в этом браузере: {drafts.length}
+            Черновиков только в этом браузере: {drafts.length}
           </span>
         )}
-        <NewTaskButton existingIds={existingIds} variant="subtle" className="ml-auto" />
+        <NewTaskButton variant="subtle" className="ml-auto" />
       </div>
 
       <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">
@@ -126,7 +126,7 @@ function TaskCard({ task, showWorkspace, isDraft }: { task: Task; showWorkspace:
           {showWorkspace && <WorkspaceBadge id={task.workspace} />}
           {isDraft && (
             <span className="rounded bg-amber-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-amber-800">
-              не в git
+              локально
             </span>
           )}
         </p>

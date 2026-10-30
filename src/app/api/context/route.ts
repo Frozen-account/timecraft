@@ -3,7 +3,7 @@
 // The proxy lets this path through; the bearer token is the only credential here.
 import { NextResponse, type NextRequest } from "next/server";
 import { canSeeProject, canSeeWorkspace, tokenEnvName } from "@/lib/access";
-import { getAgents, getMemoryDocs, getTasks } from "@/lib/data";
+import { getAgents, getMemoryDocs, getTasksAsAgent } from "@/lib/data";
 import { safeEqual } from "@/lib/session";
 import { PROJECTS, WORKSPACE_IDS, projectWorkspace, type Project, type WorkspaceId } from "@/lib/types";
 
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     workspaces: agent.allowedWorkspaces.includes("*") ? [...WORKSPACE_IDS] : agent.allowedWorkspaces,
     projects: directions,
     ...(agent.scopes.includes("tasks") && {
-      tasks: getTasks().filter((t) => visible(t.project, t.workspace)),
+      tasks: (await getTasksAsAgent()).filter((t) => visible(t.project, t.workspace)),
     }),
     ...(agent.scopes.includes("memory") && {
       memory: getMemoryDocs()

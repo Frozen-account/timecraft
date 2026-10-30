@@ -1,26 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { TaskFormDialog } from "@/components/task-form-dialog";
 import { useWorkspace } from "@/components/workspace-provider";
-import { addDraft } from "@/lib/task-drafts";
 import type { Task } from "@/lib/types";
 
-/**
- * "+ Создать задачу" trigger. `existingIds` are the ids already in backlog/tasks.json, so a
- * generated slug cannot collide with a committed task.
- */
+const MESSAGES: Record<string, string> = {
+  unauthorized: "Сессия истекла. Войдите снова.",
+  forbidden: "Недостаточно прав для создания задачи.",
+  id_conflict: "Задача с таким названием только что создана. Попробуйте ещё раз.",
+  invalid_task: "Проверьте поля формы.",
+  insert_failed: "База данных недоступна. Задача не сохранена.",
+};
+
+/** "+ Создать задачу" trigger. Writes straight to Postgres via POST /api/tasks. */
 export function NewTaskButton({
-  existingIds,
   variant = "primary",
   className = "",
 }: {
-  existingIds: string[];
   variant?: "primary" | "subtle";
   className?: string;
 }) {
   const { workspace } = useWorkspace();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   const styles =
@@ -28,9 +32,27 @@ export function NewTaskButton({
       ? "bg-brand text-white shadow-sm hover:bg-brand-dark hover:shadow-md"
       : "border border-line bg-surface text-ink-subtle hover:border-brand hover:text-brand";
 
-  function create(draft: Omit<Task, "id">) {
-    addDraft(draft, existingIds);
+  /** Resolves to an error message for the dialog to show, or null on success. */
+  async function create(draft: Omit<Task, "id">): Promise<string | null> {
+    let res: Response;
+    try {
+      res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+    } catch {
+      return "Нет связи с сервером.";
+    }
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
+    if (!res.ok || !data.ok) {
+      const base = MESSAGES[data.error ?? ""] ?? "Не удалось создать задачу.";
+      return data.detail && data.error === "invalid_task" ? `${base} (${data.detail})` : base;
+    }
     setOpen(false);
+    // The board is server-rendered from Postgres, so re-render rather than patching state.
+    router.refresh();
+    return null;
   }
 
   return (

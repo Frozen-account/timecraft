@@ -1,8 +1,12 @@
-// Git-driven data: tasks, content plan and project docs live as files in the repo and are read at build time.
-// Sync reads keep pages fully static (see Next.js caching docs: "Predictable values").
+// Mixed sources: tasks live in Postgres (writable from the UI), while the content plan, project
+// docs, memory and agent access stay as files in the repo and are read at build time. The file
+// reads are sync so those pages remain fully static; only task-reading pages become dynamic.
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
+import { createAdminClient } from "./supabase/admin";
+import { createClient } from "./supabase/server";
+import { fetchTasks } from "./tasks-repo";
 import {
   ASSIGNEES, CONTENT_FORMATS, CONTENT_STATUSES, PRIORITIES, PROJECTS, SCOPES, STATUSES, WORKSPACE_IDS,
   projectWorkspace,
@@ -43,7 +47,11 @@ function readJsonArray(file: string): Rec[] {
   return data as Rec[];
 }
 
-export function getTasks(): Task[] {
+/**
+ * The seeded history in backlog/tasks.json. Still validated strictly, because it is both the
+ * import source for scripts/seed-tasks.mjs and the fallback when Postgres is unreachable.
+ */
+export function getTasksFromFile(): Task[] {
   return readJsonArray(TASKS_FILE).map((r, i) => {
     const tags = r.tags ?? [];
     if (!Array.isArray(tags) || tags.some((t) => typeof t !== "string")) fail(TASKS_FILE, i, `"tags" must be an array of strings`);
@@ -83,6 +91,41 @@ export function getTasks(): Task[] {
       durationMinutes: duration as number | undefined,
     };
   });
+}
+
+/**
+ * Tasks for the signed-in user, read under RLS. Falls back to backlog/tasks.json if the
+ * database is unreachable, so an outage degrades to the last committed snapshot rather than
+ * an empty board. An empty table is not an outage and is returned as-is.
+ */
+export async function getTasks(): Promise<Task[]> {
+  try {
+    const rows = await fetchTasks(await createClient());
+    if (rows) return rows;
+  } catch (err) {
+    console.error(`[data] task read failed, serving backlog/tasks.json: ${(err as Error).message}`);
+  }
+  return getTasksFromFile();
+}
+
+/**
+ * Tasks for GET /api/context. Agents authenticate with an AGENT_TOKEN_* bearer token and have
+ * no user session, so this reads with the service-role client; the caller is still responsible
+ * for applying the agent's project and workspace scoping.
+ */
+export async function getTasksAsAgent(): Promise<Task[]> {
+  try {
+    const admin = createAdminClient();
+    if (admin) {
+      const rows = await fetchTasks(admin);
+      if (rows) return rows;
+    } else {
+      console.error("[data] SUPABASE_SERVICE_ROLE_KEY is not set, serving backlog/tasks.json");
+    }
+  } catch (err) {
+    console.error(`[data] agent task read failed, serving backlog/tasks.json: ${(err as Error).message}`);
+  }
+  return getTasksFromFile();
 }
 
 export function getContentPlan(): ContentItem[] {

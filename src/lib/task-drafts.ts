@@ -7,6 +7,7 @@
 // Exposed as an external store rather than component state because the board, the calendar and
 // the "+ Создать задачу" button are siblings that all have to see the same list.
 import { useSyncExternalStore } from "react";
+import { uniqueSlug } from "./slug";
 import type { Task } from "./types";
 
 const KEY = "timecraft:schedule:new-tasks:v1"; // shared with the calendar's drafts
@@ -66,24 +67,6 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-/** Readable, unique ids for tasks.json: "Созвон с клиентом UK" -> "sozvon-s-klientom-uk". */
-const CYR = "абвгдеёжзийклмнопрстуфхцчшщъыьэюяіїєґ";
-const LAT = ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s", "t", "u", "f", "h", "ts", "ch", "sh", "sch", "", "y", "", "e", "yu", "ya", "i", "yi", "ye", "g"];
-
-function makeId(title: string, taken: Set<string>): string {
-  const base =
-    [...title.toLowerCase()]
-      .map((c) => (CYR.includes(c) ? LAT[CYR.indexOf(c)] : c))
-      .join("")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48)
-      .replace(/-+$/, "") || "task";
-  let id = base;
-  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
-  return id;
-}
-
 export function useTaskDrafts(): Task[] {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
@@ -91,7 +74,7 @@ export function useTaskDrafts(): Task[] {
 /** Adds a draft, deriving a readable id that collides with neither file tasks nor other drafts. */
 export function addDraft(draft: Omit<Task, "id">, taken: Iterable<string>): Task {
   const current = getSnapshot();
-  const task: Task = { id: makeId(draft.title, new Set([...taken, ...current.map((t) => t.id)])), ...draft };
+  const task: Task = { id: uniqueSlug(draft.title, new Set([...taken, ...current.map((t) => t.id)])), ...draft };
   commit([...current, task]);
   return task;
 }

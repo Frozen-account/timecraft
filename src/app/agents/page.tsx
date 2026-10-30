@@ -7,10 +7,15 @@ import { PROJECTS, WORKSPACE_IDS, projectWorkspace } from "@/lib/types";
 import { getWorkspace } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Агенты · TimeCraft" };
+// Tasks come from Postgres per request, so this route blocks on that read instead of being
+// prerendered. Everything here is behind the auth gate, so there is no public page-speed cost;
+// the alternative is streaming the board inside <Suspense> with a skeleton.
+export const instant = false;
 
-export default function AgentsPage() {
+
+export default async function AgentsPage() {
   const agents = getAgents();
-  const tasks = getTasks();
+  const tasks = await getTasks();
   const memory = getMemoryDocs();
 
   return (
