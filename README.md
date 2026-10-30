@@ -19,7 +19,7 @@ Migrated from the IMOSTA marketing hub; the IMOSTA data (tasks, project docs, `I
 | ------------ | -------------------------------------- | ---------------------- |
 | `/`          | Dashboard: open work, next slot and memory per project | Postgres `tasks`, `memory/` |
 | `/tasks`     | Kanban: Backlog → In Progress → Review → Done, create tasks | Postgres `tasks` |
-| `/schedule`  | Weekly time-blocking calendar: drag & drop, quick task creation | Postgres `tasks` + browser-local schedule changes |
+| `/schedule`  | Weekly time-blocking calendar: drag & drop, quick task creation | Postgres `tasks` |
 | `/projects`  | Markdown documentation reader          | `projects/*.md`        |
 | `/memory`    | Memory files, grouped by project, with the agents that can read each | `memory/*.md` |
 | `/agents`    | Agent access matrix and API usage      | `agents/access.json`   |
@@ -40,7 +40,7 @@ Allowed values (see `src/lib/types.ts`):
 
 ### Calendar changes
 
-Moves and new tasks on `/schedule` are stored in the browser only. To publish them: **Скопировать JSON** → paste into `backlog/tasks.json` → commit → after the deploy press **Сбросить**.
+Moves on `/schedule` and status changes on `/tasks` are saved to Postgres immediately — there is no copy-JSON-and-commit step any more.
 
 ## Agent access
 
@@ -92,8 +92,28 @@ A task stores only its `direction`; the workspace comes from `directions.workspa
 `tasks_with_workspace` view, so a task cannot contradict its direction. The pages that read tasks
 (`/`, `/tasks`, `/schedule`, `/agents`) are therefore rendered per request rather than prerendered.
 
-Editing an existing task still means editing the row (dashboard or SQL); only creation is wired to
-the UI so far. Calendar drag & drop remains browser-local.
+### Endpoints
+
+| Endpoint | Does | Callers |
+| --- | --- | --- |
+| `GET /api/context` | read tasks + memory for an agent | agent bearer token |
+| `POST /api/tasks` | create a task | user session **or** agent bearer token |
+| `PATCH /api/tasks/<id>` | update `status`, `priority`, `scheduledDate`, `scheduledTime`, `durationMinutes` | user session **or** agent bearer token |
+
+```bash
+curl -X PATCH -H "Authorization: Bearer $AGENT_TOKEN_CLAUDE" -H 'Content-Type: application/json' \
+  -d '{"status":"done"}' https://timecraft.pro/api/tasks/utm-attribution
+```
+
+An agent request runs on the service-role client, which bypasses RLS, so the agent's direction and
+workspace scope is enforced in `src/lib/task-auth.ts` rather than by the database — a task outside
+`projects` or `allowed_workspaces` returns 403. A bearer token that matches no agent is rejected
+and never falls through to cookie auth. `src/proxy.ts` therefore leaves `/api/tasks` outside its
+gate, exactly as it does `/api/context`; both endpoints authenticate their own callers.
+
+Schedule rules are validated against the *resulting* row, so clearing a date while a time remains
+is a 400 rather than a constraint error. Title, direction, assignee, tags, notes and `due` are not
+patchable yet — change those in the Supabase dashboard.
 
 ## Authentication
 

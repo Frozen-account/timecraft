@@ -1,14 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Bot, CalendarClock, ExternalLink, Sparkles, User } from "lucide-react";
+import { Bot, CalendarClock, ExternalLink, Loader2, Sparkles, User } from "lucide-react";
 import { NewTaskButton } from "@/components/new-task-button";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import { ALL_WORKSPACES, ASSIGNEES, PROJECTS, projectWorkspace, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
-import { PRIORITY } from "@/lib/labels";
-import { useTaskDrafts } from "@/lib/task-drafts";
+import { STATUS_LABEL, PRIORITY } from "@/lib/labels";
 import { inWorkspace } from "@/lib/workspaces";
 
 const COLUMNS: { id: Status; title: string }[] = [
@@ -47,8 +47,12 @@ function formatDue(due: string) {
 
 export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   const { workspace } = useWorkspace();
-  // Drafts created in this browser sit alongside the committed tasks from backlog/tasks.json.
-  const drafts = useTaskDrafts();
+  const router = useRouter();
+  // Ids with a PATCH in flight, plus the last failure, so a rejected drop says why.
+  const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<Status | null>(null);
   const [assignee, setAssignee] = useState<Assignee | "all">("all");
   const [project, setProject] = useState<Project | "all">("all");
   const showWorkspace = workspace === ALL_WORKSPACES;
@@ -63,12 +67,9 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   // empty the board, so it reads as "all" until the user picks one that exists here.
   const activeProject = project !== "all" && projectOptions.includes(project) ? project : "all";
 
-  const all = useMemo(() => [...tasks, ...drafts], [tasks, drafts]);
-  const draftIds = useMemo(() => new Set(drafts.map((t) => t.id)), [drafts]);
-
   const visible = useMemo(
     () =>
-      all
+      tasks
         .filter(
           (t) =>
             inWorkspace(t.workspace, workspace) &&
@@ -76,19 +77,70 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
             (activeProject === "all" || t.project === activeProject),
         )
         .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]),
-    [all, assignee, activeProject, workspace],
+    [tasks, assignee, activeProject, workspace],
   );
+
+  async function setStatus(id: string, status: Status) {
+    setSaving((s) => new Set(s).add(id));
+    setError(null);
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
+      if (!res.ok || !data.ok) setError(data.detail ?? data.error ?? "Не удалось изменить статус.");
+      else router.refresh();
+    } catch {
+      setError("Нет связи с сервером. Статус не сохранён.");
+    } finally {
+      setSaving((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+
+  const endDrag = () => {
+    setDragId(null);
+    setDropTarget(null);
+  };
+
+  // Only react to our own card drags, not files or text dragged in from outside.
+  const columnProps = (col: Status) => ({
+    onDragOver: (e: React.DragEvent<HTMLElement>) => {
+      if (!dragId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setDropTarget(col);
+    },
+    onDragLeave: (e: React.DragEvent<HTMLElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+        setDropTarget((c) => (c === col ? null : c));
+      }
+    },
+    onDrop: (e: React.DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData("text/plain") || dragId;
+      const task = id ? tasks.find((t) => t.id === id) : undefined;
+      if (task && task.status !== col) void setStatus(task.id, col);
+      endDrag();
+    },
+  });
 
   return (
     <div>
+      {error && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-900" role="alert">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto rounded-md px-2.5 py-1 font-semibold hover:bg-red-100">Скрыть</button>
+        </div>
+      )}
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <FilterSelect label="Исполнитель" value={assignee} options={ASSIGNEES} onChange={(v) => setAssignee(v as Assignee | "all")} />
         <FilterSelect label="Проект" value={activeProject} options={projectOptions} onChange={(v) => setProject(v as Project | "all")} />
-        {drafts.length > 0 && (
-          <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
-            Черновиков только в этом браузере: {drafts.length}
-          </span>
-        )}
         <NewTaskButton variant="subtle" className="ml-auto" />
       </div>
 
@@ -96,15 +148,39 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
         {COLUMNS.map((col) => {
           const items = visible.filter((t) => t.status === col.id);
           return (
-            <section key={col.id} aria-label={col.title} className="flex w-72 shrink-0 snap-start flex-col rounded-xl border border-line bg-muted/60 p-3 md:w-auto">
+            <section
+              key={col.id}
+              aria-label={col.title}
+              {...columnProps(col.id)}
+              className={`flex w-72 shrink-0 snap-start flex-col rounded-xl border p-3 transition-colors duration-150 md:w-auto ${
+                dropTarget === col.id ? "border-brand bg-brand/5" : "border-line bg-muted/60"
+              }`}
+            >
               <header className="mb-3 flex items-center justify-between px-1">
                 <h2 className="text-sm font-bold uppercase tracking-wider text-ink-subtle">{col.title}</h2>
                 <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-bold text-ink-muted ring-1 ring-line">{items.length}</span>
               </header>
               <div className="flex min-h-24 flex-1 flex-col gap-2.5">
-                {items.map((task) => <TaskCard key={task.id} task={task} showWorkspace={showWorkspace} isDraft={draftIds.has(task.id)} />)}
+                {items.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    showWorkspace={showWorkspace}
+                    saving={saving.has(task.id)}
+                    dragging={dragId === task.id}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", task.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      setDragId(task.id);
+                    }}
+                    onDragEnd={endDrag}
+                    onStatusChange={(status) => void setStatus(task.id, status)}
+                  />
+                ))}
                 {items.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-ink-muted">Пусто</p>
+                  <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-ink-muted">
+                    {dropTarget === col.id ? "Отпустите, чтобы перенести" : "Пусто"}
+                  </p>
                 )}
               </div>
             </section>
@@ -115,20 +191,33 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function TaskCard({ task, showWorkspace, isDraft }: { task: Task; showWorkspace: boolean; isDraft: boolean }) {
+function TaskCard({
+  task, showWorkspace, saving, dragging, onDragStart, onDragEnd, onStatusChange,
+}: {
+  task: Task;
+  showWorkspace: boolean;
+  saving: boolean;
+  dragging: boolean;
+  onDragStart: (e: React.DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  onStatusChange: (status: Status) => void;
+}) {
   const a = ASSIGNEE_STYLE[task.assignee];
   const AssigneeIcon = a.icon;
   const pr = PRIORITY[task.priority];
   return (
-    <article className="rounded-xl border border-line bg-surface p-3.5 shadow-sm transition-all duration-200 hover:shadow-md">
-      {(showWorkspace || isDraft) && (
-        <p className="mb-2 flex flex-wrap items-center gap-1.5">
-          {showWorkspace && <WorkspaceBadge id={task.workspace} />}
-          {isDraft && (
-            <span className="rounded bg-amber-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-amber-800">
-              локально
-            </span>
-          )}
+    <article
+      draggable={!saving}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      aria-busy={saving || undefined}
+      className={`rounded-xl border border-line bg-surface p-3.5 shadow-sm transition-all duration-200 hover:shadow-md ${
+        saving ? "opacity-60" : "cursor-grab active:cursor-grabbing"
+      } ${dragging ? "opacity-50" : ""}`}
+    >
+      {showWorkspace && (
+        <p className="mb-2">
+          <WorkspaceBadge id={task.workspace} />
         </p>
       )}
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -157,6 +246,20 @@ function TaskCard({ task, showWorkspace, isDraft }: { task: Task; showWorkspace:
         <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold ring-1 ${a.cls}`}>
           <AssigneeIcon className="size-3" aria-hidden /> {task.assignee}
         </span>
+        <label className="inline-flex items-center gap-1">
+          <span className="sr-only">Статус: {task.title}</span>
+          {saving ? (
+            <Loader2 className="size-3.5 animate-spin text-brand" aria-label="Сохранение" />
+          ) : (
+            <select
+              value={task.status}
+              onChange={(e) => onStatusChange(e.target.value as Status)}
+              className="rounded-md border border-line bg-canvas px-1.5 py-0.5 text-[11px] font-semibold text-ink-subtle hover:border-brand focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            >
+              {COLUMNS.map((c) => <option key={c.id} value={c.id}>{STATUS_LABEL[c.id]}</option>)}
+            </select>
+          )}
+        </label>
         {task.scheduledDate ? (
           <span className="ml-auto inline-flex items-center gap-1 font-semibold text-ink-subtle">
             <CalendarClock className="size-3.5 text-brand" aria-hidden /> {formatSlot(task)}

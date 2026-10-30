@@ -104,6 +104,31 @@ export async function fetchTaskIds(client: SupabaseClient): Promise<Set<string>>
   return new Set((data as { id: string }[]).map((r) => r.id));
 }
 
+export async function fetchTask(client: SupabaseClient, id: string): Promise<Task | null> {
+  const { data, error } = await client.from(VIEW).select(`${COLUMNS},workspace`).eq("id", id).maybeSingle();
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  return data ? rowToTask(data as Row) : null;
+}
+
+/** Partial update. Keys present with null clear the column; absent keys are left alone. */
+export async function updateTask(
+  client: SupabaseClient,
+  id: string,
+  patch: {
+    status?: string;
+    priority?: string;
+    scheduled_date?: string | null;
+    scheduled_time?: string | null;
+    duration_minutes?: number | null;
+  },
+): Promise<Task> {
+  const { error } = await client.from(TABLE).update(patch).eq("id", id);
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  const updated = await fetchTask(client, id);
+  if (!updated) throw new Error("task disappeared while updating");
+  return updated;
+}
+
 export async function insertTask(client: SupabaseClient, task: Omit<Task, "id">, id: string): Promise<Task> {
   const { error } = await client.from(TABLE).insert(taskToRow(task, id));
   if (error) throw Object.assign(new Error(error.message), { code: error.code });

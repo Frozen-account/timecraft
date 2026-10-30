@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  CalendarPlus, ChevronLeft, ChevronRight, ClipboardCopy, Clock, ExternalLink, Inbox, PanelRightClose,
-  PanelRightOpen, Plus, RotateCcw, Trash2, X,
+  CalendarPlus, ChevronLeft, ChevronRight, Clock, ExternalLink, Inbox, Loader2, PanelRightClose,
+  PanelRightOpen, Plus, X,
 } from "lucide-react";
 import { DialogFrame, fieldCls } from "@/components/dialog-frame";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
-import { addDraft, clearDrafts, removeDraft, updateDraft, useTaskDrafts } from "@/lib/task-drafts";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import {
@@ -20,7 +20,6 @@ import { getWorkspace, inWorkspace } from "@/lib/workspaces";
 const START_HOUR = 8;
 const END_HOUR = 20;
 const HOUR_PX = 64;
-const STORAGE_KEY = "timecraft:schedule:v1";
 // Hover-only controls stay visible on touch screens, which have no hover.
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100";
 const TIME_OPTIONS = Array.from({ length: (END_HOUR - START_HOUR) * 2 }, (_, i) => {
@@ -34,8 +33,6 @@ const INITIATIVE_LABEL: Record<string, string> = {
   "/projects/video-education": "Video Education",
 };
 
-type Overrides = Record<string, Schedule | null>; // null = unscheduled in this browser
-
 // --- date helpers (local time) ---
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
@@ -43,34 +40,6 @@ const mondayOf = (d: Date) => addDays(d, -((d.getDay() + 6) % 7));
 const toMinutes = (hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 const fmtTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 const fmtShort = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-
-function loadJson(key: string): unknown {
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function saveJson(key: string, value: unknown) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-function loadOverrides(): Overrides {
-  const data = loadJson(STORAGE_KEY);
-  return data && typeof data === "object" && !Array.isArray(data) ? (data as Overrides) : {};
-}
-
-function applyOverrides(tasks: Task[], overrides: Overrides): Task[] {
-  return tasks.map((t) => {
-    if (!(t.id in overrides)) return t;
-    const o = overrides[t.id];
-    return { ...t, scheduledDate: o?.scheduledDate, scheduledTime: o?.scheduledTime, durationMinutes: o?.durationMinutes };
-  });
-}
 
 interface Block { task: Task; start: number; end: number; lane: number; lanes: number }
 
@@ -99,18 +68,18 @@ function layoutDay(tasks: Task[]): Block[] {
 }
 
 export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
+  const router = useRouter();
   const { workspace } = useWorkspace();
-  const [overrides, setOverrides] = useState<Overrides>({});
-  const [loaded, setLoaded] = useState(false);
   const [anchor, setAnchor] = useState<Date | null>(null); // selected day; the week is derived from it
   const [now, setNow] = useState<Date | null>(null);
   const [view, setView] = useState<"week" | "day">("week");
   const [editing, setEditing] = useState<Task | null>(null);
-  const created = useTaskDrafts(); // shared with the board: tasks not yet in tasks.json
   const [creating, setCreating] = useState<Schedule | null>(null); // prefill for the "new task" dialog
   const [trayOpen, setTrayOpen] = useState(true);
   const [allPriorities, setAllPriorities] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // Ids with a PATCH in flight, plus the last failure, so a drag that is rejected says why.
+  const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   // "allday:<date>" | "slot:<date>:<hour>" | "tray"
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -121,62 +90,87 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time client init
     setNow(d);
     setAnchor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
-    setOverrides(loadOverrides());
-    setLoaded(true);
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (loaded) saveJson(STORAGE_KEY, overrides);
-  }, [overrides, loaded]);
-
-  const merged = useMemo(() => applyOverrides([...tasks, ...created], overrides), [tasks, created, overrides]);
-  // Rendering uses the active workspace only; `merged` stays complete so id generation, drag
-  // lookups and the tasks.json export never lose the tasks hidden by the current filter.
+  // `merged` is the full set from Postgres; drag lookups use it so a task hidden by the current
+  // workspace filter can still be resolved. Rendering uses `scoped`.
+  const merged = tasks;
   const scoped = useMemo(() => merged.filter((t) => inWorkspace(t.workspace, workspace)), [merged, workspace]);
   const showWorkspace = workspace === ALL_WORKSPACES;
-  const isNew = (id: string) => created.some((t) => t.id === id);
   const days = anchor ? (view === "week" ? Array.from({ length: 7 }, (_, i) => addDays(mondayOf(anchor), i)) : [anchor]) : [];
   const todayIso = now ? iso(now) : "";
   const unscheduled = scoped.filter((t) => !t.scheduledDate && t.status !== "done" && (allPriorities || t.priority === "high"));
-  const changeCount = Object.keys(overrides).length + created.length;
 
   const shift = (dir: number) => setAnchor((a) => (a ? addDays(a, dir * (view === "week" ? 7 : 1)) : a));
   const goToday = () => now && setAnchor(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
 
-  // New tasks are edited in place; for tasks.json tasks, a change that lands back on the file value is not a pending change.
-  const setSchedule = (id: string, s: Schedule | null) => {
-    if (isNew(id)) {
-      updateDraft(id, { scheduledDate: s?.scheduledDate, scheduledTime: s?.scheduledTime, durationMinutes: s?.durationMinutes });
-      return;
+  /** PATCH one task, then re-render from the server. Returns an error message, or null. */
+  async function patchTask(id: string, patch: Record<string, unknown>): Promise<string | null> {
+    setSaving((s) => new Set(s).add(id));
+    setError(null);
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
+      if (!res.ok || !data.ok) {
+        const message = data.detail ?? data.error ?? "Не удалось сохранить изменение.";
+        setError(message);
+        return message;
+      }
+      router.refresh();
+      return null;
+    } catch {
+      const message = "Нет связи с сервером. Изменение не сохранено.";
+      setError(message);
+      return message;
+    } finally {
+      setSaving((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
     }
-    setOverrides((o) => {
-      const orig = tasks.find((t) => t.id === id);
-      const same =
-        orig &&
-        (orig.scheduledDate ?? null) === (s?.scheduledDate ?? null) &&
-        (orig.scheduledTime ?? null) === (s?.scheduledTime ?? null) &&
-        (orig.durationMinutes ?? null) === (s?.durationMinutes ?? null);
-      const n = { ...o };
-      if (same) delete n[id];
-      else n[id] = s;
-      return n;
+  }
+
+  // Unscheduling sends explicit nulls; the endpoint clears the dependent columns together.
+  const setSchedule = (id: string, s: Schedule | null) => {
+    void patchTask(id, {
+      scheduledDate: s?.scheduledDate ?? null,
+      scheduledTime: s?.scheduledTime ?? null,
+      durationMinutes: s?.durationMinutes ?? null,
     });
   };
-  const resetTask = (id: string) => setOverrides((o) => { const n = { ...o }; delete n[id]; return n; });
 
-  const createTask = (draft: Omit<Task, "id">) => {
-    const task = addDraft(draft, merged.map((t) => t.id));
+  async function createTask(draft: Omit<Task, "id">): Promise<string | null> {
+    let res: Response;
+    try {
+      res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+    } catch {
+      return "Нет связи с сервером.";
+    }
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
+    if (!res.ok || !data.ok) return data.detail ?? data.error ?? "Не удалось создать задачу.";
+
     setCreating(null);
-    if (task.scheduledDate) {
-      const [y, m, d] = task.scheduledDate.split("-").map(Number);
-      setAnchor(new Date(y, m - 1, d)); // show the new task even if it was dated outside the visible range
+    router.refresh();
+    if (draft.scheduledDate) {
+      const [y, m, d] = draft.scheduledDate.split("-").map(Number);
+      setAnchor(new Date(y, m - 1, d)); // show it even if it was dated outside the visible range
     } else {
       setTrayOpen(true);
-      if (task.priority !== "high") setAllPriorities(true);
+      if (draft.priority !== "high") setAllPriorities(true);
     }
-  };
+    return null;
+  }
 
   // --- drag & drop (native HTML5; touch devices keep using the dialog) ---
   const endDrag = () => { setDragId(null); setDropTarget(null); };
@@ -217,17 +211,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   const dragged = dragId ? merged.find((t) => t.id === dragId) : undefined;
   const dropCls = (key: string) => (dropTarget === key ? "bg-brand/10 ring-1 ring-inset ring-brand/40" : "");
 
-  async function copyJson() {
-    const text = JSON.stringify(merged, null, 2) + "\n";
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      window.prompt("Скопируйте JSON вручную:", text);
-    }
-  }
-
   const range =
     days.length === 0 ? "…"
       : view === "week"
@@ -267,27 +250,12 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
         </button>
       </div>
 
-      {changeCount > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
-          <span>
-            <strong>{changeCount}</strong> изм.{created.length > 0 && <> (из них новых задач: {created.length})</>} сохранено только в этом браузере.
-            Чтобы команда их увидела, скопируйте JSON в <code className="text-xs">backlog/tasks.json</code> и закоммитьте.
-          </span>
-          <div className="ml-auto flex gap-2">
-            <button onClick={copyJson} className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2.5 py-1 font-semibold ring-1 ring-amber-300 hover:bg-amber-100">
-              <ClipboardCopy className="size-4" aria-hidden /> {copied ? "Скопировано" : "Скопировать JSON"}
-            </button>
-            <button
-              onClick={() => {
-                if (!window.confirm("Отменить все локальные изменения расписания и удалить новые задачи?")) return;
-                setOverrides({});
-                clearDrafts();
-              }}
-              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-semibold hover:bg-amber-100"
-            >
-              <RotateCcw className="size-4" aria-hidden /> Сбросить
-            </button>
-          </div>
+      {error && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-900" role="alert">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto rounded-md px-2.5 py-1 font-semibold hover:bg-red-100">
+            Скрыть
+          </button>
         </div>
       )}
 
@@ -349,7 +317,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                       >
                         <span className={`size-1.5 shrink-0 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
                         <span className="line-clamp-2 flex-1">{t.title}</span>
-                        {isNew(t.id) && <NewBadge />}
                         <CalendarPlus className="size-3.5 shrink-0 text-brand" aria-hidden />
                       </button>
                     ))}
@@ -448,7 +415,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                               <span className="rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line">{initiative}</span>
                             )}
                             {showWorkspace && <WorkspaceBadge id={b.task.workspace} />}
-                            {isNew(b.task.id) && <NewBadge />}
                           </span>
                         </button>
                       );
@@ -489,8 +455,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                   <p className="flex items-center gap-1.5 text-[11px] font-semibold">
                     <span className={`size-1.5 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
                     <span className={PRIORITY[t.priority].text}>{PRIORITY[t.priority].label}</span>
-                    {isNew(t.id) && <span className="ml-auto"><NewBadge /></span>}
-                    <span className={`${isNew(t.id) ? "" : "ml-auto "}rounded bg-ink px-1 py-px text-[10px] text-white`}>{t.project}</span>
+                    <span className="ml-auto rounded bg-ink px-1 py-px text-[10px] text-white">{t.project}</span>
                   </p>
                   <p className="mt-1 text-sm font-semibold leading-snug">{t.title}</p>
                   <button
@@ -511,11 +476,9 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
         <ScheduleDialog
           task={merged.find((t) => t.id === editing.id) ?? editing}
           defaultDate={anchor ? iso(anchor) : todayIso}
-          overridden={editing.id in overrides}
+          saving={saving.has(editing.id)}
           onClose={() => setEditing(null)}
           onSave={(s) => { setSchedule(editing.id, s); setEditing(null); }}
-          onReset={() => { resetTask(editing.id); setEditing(null); }}
-          onDelete={isNew(editing.id) ? () => { removeDraft(editing.id); setEditing(null); } : undefined}
         />
       )}
 
@@ -524,20 +487,14 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function NewBadge() {
-  return <span className="shrink-0 rounded bg-amber-100 px-1 py-px text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">новая</span>;
-}
-
 const labelCls = "text-xs font-semibold text-ink-muted";
 
-function ScheduleDialog({ task, defaultDate, overridden, onClose, onSave, onReset, onDelete }: {
+function ScheduleDialog({ task, defaultDate, saving, onClose, onSave }: {
   task: Task;
   defaultDate: string;
-  overridden: boolean;
+  saving: boolean;
   onClose: () => void;
   onSave: (s: Schedule | null) => void;
-  onReset: () => void;
-  onDelete?: () => void; // only for tasks created in this browser
 }) {
   const [date, setDate] = useState(task.scheduledDate ?? defaultDate);
   const [time, setTime] = useState(task.scheduledTime && TIME_OPTIONS.includes(task.scheduledTime) ? task.scheduledTime : "10:00");
@@ -597,23 +554,14 @@ function ScheduleDialog({ task, defaultDate, overridden, onClose, onSave, onRese
           </label>
           {!allDay && endsLate && <p className="mt-2 text-xs text-amber-700">Блок заканчивается после 20:00 — в сетке он будет обрезан.</p>}
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            {onDelete && (
-              <button
-                type="button"
-                onClick={() => window.confirm("Удалить новую задачу?") && onDelete()}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-brand"
-              >
-                <Trash2 className="size-4" aria-hidden /> Удалить
-              </button>
-            )}
             {task.scheduledDate && (
-              <button type="button" onClick={() => onSave(null)} className="rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-brand">Снять с расписания</button>
-            )}
-            {overridden && (
-              <button type="button" onClick={onReset} className="rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-ink">Как в tasks.json</button>
+              <button type="button" disabled={saving} onClick={() => onSave(null)} className="rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-brand disabled:opacity-60">Снять с расписания</button>
             )}
             <button type="button" onClick={onClose} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink">Отмена</button>
-            <button type="submit" className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md">Сохранить</button>
+            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md disabled:opacity-60">
+              {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              Сохранить
+            </button>
           </div>
         </form>
     </DialogFrame>
@@ -624,7 +572,8 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
   initial: Schedule;
   workspace: WorkspaceFilter;
   onClose: () => void;
-  onCreate: (task: Omit<Task, "id">) => void;
+  /** Resolves to an error message to display, or null once the task is saved. */
+  onCreate: (task: Omit<Task, "id">) => Promise<string | null>;
 }) {
   // Only directions in the active workspace can be picked, so a new task cannot land in a
   // workspace the user is not looking at. In "all" mode every direction is offered.
@@ -642,6 +591,8 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
   const [duration, setDuration] = useState(initial.durationMinutes ?? 60);
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const timed = Boolean(date && time);
   const outsideGrid = timed && (toMinutes(time) < START_HOUR * 60 || toMinutes(time) + duration > END_HOUR * 60);
 
@@ -653,11 +604,13 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
       </div>
       <form
         className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (!title.trim()) return;
-          // Field order and validation mirror backlog/tasks.json (see src/lib/data.ts).
-          onCreate({
+          if (!title.trim() || pending) return;
+          setPending(true);
+          setError(null);
+          // Field order and validation mirror the tasks table (see src/lib/task-validate.ts).
+          const message = await onCreate({
             title: title.trim(),
             status,
             priority,
@@ -669,6 +622,11 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
             ...(date && { scheduledDate: date }),
             ...(timed && { scheduledTime: time, durationMinutes: Math.min(Math.max(Math.round(duration / 15) * 15, 15), 720) }),
           });
+          // On success the parent closes the dialog; on failure keep the input.
+          if (message) {
+            setError(message);
+            setPending(false);
+          }
         }}
       >
         <label className={`${labelCls} sm:col-span-2`}>Название *
@@ -714,9 +672,13 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
         <label className={`${labelCls} sm:col-span-2`}>Теги (через запятую)
           <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="sales, uk, call" className={`mt-1 ${fieldCls}`} />
         </label>
+        {error && <p role="alert" className="text-sm font-semibold text-red-700 sm:col-span-2">{error}</p>}
         <div className="mt-2 flex items-center gap-2 sm:col-span-2">
-          <button type="button" onClick={onClose} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink">Отмена</button>
-          <button type="submit" className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md">Создать</button>
+          <button type="button" onClick={onClose} disabled={pending} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink disabled:opacity-60">Отмена</button>
+          <button type="submit" disabled={pending} className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md disabled:opacity-60">
+            {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            Создать
+          </button>
         </div>
       </form>
     </DialogFrame>

@@ -4,9 +4,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { updateSession, withRefreshedCookies } from "@/lib/supabase/middleware";
 
-// /api/context authenticates agents with an AGENT_TOKEN_* bearer token, not the user session,
-// so it must stay outside the gate — see src/app/api/context/route.ts.
-const PUBLIC_PATHS = ["/login", "/auth", "/api/auth", "/api/context"];
+// /api/context and /api/tasks authenticate their own callers: an AGENT_TOKEN_* bearer token or a
+// user session (src/lib/task-auth.ts). They must stay outside this gate so an agent request is
+// not redirected for having no session cookie — both reject unauthenticated callers themselves.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/auth", "/api/context", "/api/tasks"];
 
 const isPublic = (pathname: string) =>
   PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
