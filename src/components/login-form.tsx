@@ -1,22 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, Loader2 } from "lucide-react";
+import { KeyRound, Loader2, Mail } from "lucide-react";
 
 const ERRORS: Record<string, string> = {
-  invalid_key: "Неверный ключ доступа.",
-  not_configured: "Доступ не настроен: на сервере не задан TIMECRAFT_ACCESS_KEY.",
+  invalid_credentials: "Неверный email или пароль.",
+  missing_credentials: "Введите email и пароль.",
+  rate_limited: "Слишком много попыток. Подождите минуту и попробуйте снова.",
+  not_configured: "Доступ не настроен: на сервере не заданы NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY.",
 };
 
+const FIELD_CLASS =
+  "w-full rounded-lg border bg-white/5 py-3 pl-10 pr-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-1";
+
 export function LoginForm() {
-  const [key, setKey] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!key.trim()) {
-      setError("Введите ключ доступа.");
+    if (!email.trim() || !password) {
+      setError(ERRORS.missing_credentials);
       return;
     }
     setPending(true);
@@ -26,10 +32,11 @@ export function LoginForm() {
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, next }),
+        body: JSON.stringify({ email: email.trim(), password, next }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; next?: string; error?: string };
       if (res.ok && data.ok) {
+        // Full reload so the proxy sees the fresh session cookies on the next navigation.
         window.location.assign(data.next ?? "/");
         return;
       }
@@ -40,26 +47,45 @@ export function LoginForm() {
     setPending(false);
   }
 
+  const invalid = error ? "border-red-400 focus:ring-red-400" : "border-white/15 focus:border-brand focus:ring-brand";
+
   return (
     <form onSubmit={submit} noValidate className="mt-6 flex flex-col gap-3">
-      <label htmlFor="access-key" className="text-xs font-semibold uppercase tracking-wider text-white/60">Ключ доступа</label>
+      <label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-white/60">Email</label>
+      <div className="relative">
+        <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/40" aria-hidden />
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          autoFocus
+          value={email}
+          onChange={(e) => { setEmail(e.target.value); setError(null); }}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? "login-error" : undefined}
+          className={`${FIELD_CLASS} ${invalid}`}
+          placeholder="you@timecraft.pro"
+        />
+      </div>
+
+      <label htmlFor="password" className="mt-1 text-xs font-semibold uppercase tracking-wider text-white/60">Пароль</label>
       <div className="relative">
         <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/40" aria-hidden />
         <input
-          id="access-key"
+          id="password"
+          name="password"
           type="password"
           autoComplete="current-password"
-          autoFocus
-          value={key}
-          onChange={(e) => { setKey(e.target.value); setError(null); }}
+          value={password}
+          onChange={(e) => { setPassword(e.target.value); setError(null); }}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? "login-error" : undefined}
-          className={`w-full rounded-lg border bg-white/5 py-3 pl-10 pr-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-1 ${
-            error ? "border-red-400 focus:ring-red-400" : "border-white/15 focus:border-brand focus:ring-brand"
-          }`}
+          className={`${FIELD_CLASS} ${invalid}`}
           placeholder="••••••••••••"
         />
       </div>
+
       {error && <p id="login-error" role="alert" className="text-sm font-medium text-red-400">{error}</p>}
       <button
         type="submit"

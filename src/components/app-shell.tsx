@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Bot, Brain, CalendarDays, Clapperboard, FolderOpen, KanbanSquare, LayoutDashboard, LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { createClient } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 const NAV = [
   { href: "/", label: "Дашборд", icon: LayoutDashboard },
@@ -18,10 +21,37 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [email, setEmail] = useState<string | null>(null);
+  const onLogin = pathname === "/login";
 
-  if (pathname === "/login") return <>{children}</>;
+  // Read the signed-in user client-side so protected pages stay statically prerenderable.
+  useEffect(() => {
+    if (onLogin || !isSupabaseConfigured()) return;
+    const supabase = createClient();
+    let active = true;
+    supabase.auth
+      .getUser()
+      .then(({ data }) => {
+        if (active) setEmail(data.user?.email ?? null);
+      })
+      .catch(() => {
+        // Offline or Supabase unreachable: the proxy still gates access, so just show no email.
+      });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null);
+    });
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [onLogin]);
+
+  if (onLogin) return <>{children}</>;
 
   async function logout() {
+    // Client sign-out clears the browser-side session; the API call is the authoritative
+    // server-side cookie clear. Both run so neither side can be left holding a stale session.
+    if (isSupabaseConfigured()) await createClient().auth.signOut().catch(() => {});
     await fetch("/api/auth", { method: "DELETE" }).catch(() => {});
     // Full reload on purpose: drops the client router cache so protected pages aren't shown from memory.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
@@ -53,9 +83,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {email && (
+            <p className="mt-6 truncate px-3 text-xs text-white/40 md:mt-6" title={email}>
+              {email}
+            </p>
+          )}
           <button
             onClick={logout}
-            className="flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white md:mt-6"
+            className="flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white"
           >
             <LogOut className="size-4" aria-hidden />
             Выйти

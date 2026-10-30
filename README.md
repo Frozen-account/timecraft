@@ -55,10 +55,26 @@ curl -H "Authorization: Bearer $AGENT_TOKEN_CLAUDE" "https://timecraft.pro/api/c
 - Memory files without a `project` are shared with every agent that has the `memory` scope.
 - Wrong or missing token → 401; a project outside the agent's list → 403.
 
+## Authentication
+
+Team members sign in at `/login` with their Supabase email + password. `src/proxy.ts` gates every
+route on a valid session and refreshes the Supabase cookies on each request, so a session persists
+per device for as long as the refresh token lives.
+
+Users are managed in Supabase → Authentication → Users (there is no public sign-up route).
+Agent access to `GET /api/context` is separate and still uses the `AGENT_TOKEN_*` bearer tokens.
+
+| File | Role |
+| --- | --- |
+| `src/lib/supabase/client.ts` | browser client (Client Components) |
+| `src/lib/supabase/server.ts` | server client (Server Components, Actions, Route Handlers) |
+| `src/lib/supabase/middleware.ts` | `updateSession()` — cookie refresh used by `src/proxy.ts` |
+| `src/app/api/auth/route.ts` | `POST` sign-in, `DELETE` sign-out |
+
 ## Development
 
 ```bash
-cp .env.example .env.local   # set TIMECRAFT_ACCESS_KEY at least
+cp .env.example .env.local   # set NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY at least
 npm install
 npm run dev     # http://localhost:3000
 npm run build
@@ -70,4 +86,4 @@ Brand tokens (`brand`, `ink`, `canvas`, …) are defined in `src/app/globals.css
 
 Import the repo in Vercel (framework preset: Next.js, root directory: repo root) and set the variables from `.env.example`.
 Attach the domains `timecraft.pro` and `timecraft.com` in Vercel → Settings → Domains.
-All pages require the access key (`/login`); responses carry `X-Robots-Tag: noindex, nofollow`.
+All pages require a signed-in Supabase user (`/login`); responses carry `X-Robots-Tag: noindex, nofollow`.
