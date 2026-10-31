@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bot, CalendarClock, ExternalLink, Loader2, Sparkles, User } from "lucide-react";
-import { NewTaskButton } from "@/components/new-task-button";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import { ALL_WORKSPACES, ASSIGNEES, PROJECTS, projectWorkspace, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
@@ -141,7 +140,6 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <FilterSelect label="Исполнитель" value={assignee} options={ASSIGNEES} onChange={(v) => setAssignee(v as Assignee | "all")} />
         <FilterSelect label="Проект" value={activeProject} options={projectOptions} onChange={(v) => setProject(v as Project | "all")} />
-        <NewTaskButton variant="subtle" className="ml-auto" />
       </div>
 
       <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">

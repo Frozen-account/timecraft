@@ -16,7 +16,7 @@ export default async function TasksPage() {
 
   return (
     <>
-      <PageHeader title="Задачи" subtitle="Источник — backlog/tasks.json в репозитории. Чтобы изменить задачу, отредактируйте файл и сделайте коммит.">
+      <PageHeader title="Задачи" subtitle="Управление задачами и бэклогом">
         <NewTaskButton />
       </PageHeader>
       <KanbanBoard tasks={tasks} />
