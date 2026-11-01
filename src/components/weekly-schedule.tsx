@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  CalendarPlus, ChevronLeft, ChevronRight, Clock, ExternalLink, Inbox, Loader2, PanelRightClose,
-  PanelRightOpen, Plus, X,
+  CalendarPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock, ExternalLink, Inbox,
+  Loader2, PanelRightClose, PanelRightOpen, Plus, X,
 } from "lucide-react";
 import { DialogFrame, fieldCls } from "@/components/dialog-frame";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
@@ -27,6 +27,14 @@ const TIME_OPTIONS = Array.from({ length: (END_HOUR - START_HOUR) * 2 }, (_, i) 
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 });
 const DURATIONS = [30, 60, 90, 120, 180, 240];
+
+// Date-navigation steps, in render order around the "Сегодня" button.
+const STEPS = [
+  { days: -7, icon: ChevronsLeft, label: "Назад на неделю" },
+  { days: -1, icon: ChevronLeft, label: "Назад на день" },
+  { days: 1, icon: ChevronRight, label: "Вперёд на день" },
+  { days: 7, icon: ChevronsRight, label: "Вперёд на неделю" },
+] as const;
 
 const INITIATIVE_LABEL: Record<string, string> = {
   "/projects/english-expansion": "English Expansion",
@@ -70,7 +78,7 @@ function layoutDay(tasks: Task[]): Block[] {
 export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   const router = useRouter();
   const { workspace } = useWorkspace();
-  const [anchor, setAnchor] = useState<Date | null>(null); // selected day; the week is derived from it
+  const [anchor, setAnchor] = useState<Date | null>(null); // first visible day of the window
   const [now, setNow] = useState<Date | null>(null);
   const [view, setView] = useState<"week" | "day">("week");
   const [editing, setEditing] = useState<Task | null>(null);
@@ -89,7 +97,8 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
     const d = new Date();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time client init
     setNow(d);
-    setAnchor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+    // Open on the aligned Mon–Sun week containing today, the familiar default.
+    setAnchor(mondayOf(new Date(d.getFullYear(), d.getMonth(), d.getDate())));
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -99,12 +108,35 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   const merged = tasks;
   const scoped = useMemo(() => merged.filter((t) => inWorkspace(t.workspace, workspace)), [merged, workspace]);
   const showWorkspace = workspace === ALL_WORKSPACES;
-  const days = anchor ? (view === "week" ? Array.from({ length: 7 }, (_, i) => addDays(mondayOf(anchor), i)) : [anchor]) : [];
+  const days = anchor ? (view === "week" ? Array.from({ length: 7 }, (_, i) => addDays(anchor, i)) : [anchor]) : [];
   const todayIso = now ? iso(now) : "";
   const unscheduled = scoped.filter((t) => !t.scheduledDate && t.status !== "done" && (allPriorities || t.priority === "high"));
 
-  const shift = (dir: number) => setAnchor((a) => (a ? addDays(a, dir * (view === "week" ? 7 : 1)) : a));
-  const goToday = () => now && setAnchor(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
+  const today = now ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) : null;
+
+  /** Moves the window by whole days: ±1 slides it, ±7 jumps a week and keeps the alignment. */
+  const shift = (days: number) => setAnchor((a) => (a ? addDays(a, days) : a));
+
+  // In week mode snap back to the aligned week, so "Сегодня" always restores Mon–Sun.
+  const goToday = () => today && setAnchor(view === "week" ? mondayOf(today) : today);
+
+  function changeView(next: "week" | "day") {
+    if (next === view) return;
+    setView(next);
+    setAnchor((a) => {
+      if (!a) return a;
+      if (next === "week") return mondayOf(a); // open the aligned week containing this day
+      // Week -> day: prefer today when it is on screen, otherwise the first visible day.
+      const onScreen = today && iso(today) >= iso(a) && iso(today) <= iso(addDays(a, 6));
+      return onScreen ? today : a;
+    });
+  }
+
+  // Quick-create defaults to today when it is visible, rather than to the window edge.
+  const focusDate =
+    today && days.length > 0 && iso(today) >= iso(days[0]) && iso(today) <= iso(days[days.length - 1])
+      ? iso(today)
+      : (days[0] ? iso(days[0]) : todayIso);
 
   /** PATCH one task, then re-render from the server. Returns an error message, or null. */
   async function patchTask(id: string, patch: Record<string, unknown>): Promise<string | null> {
@@ -221,17 +253,43 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
     <div>
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-lg border border-line bg-surface shadow-sm">
-          <button onClick={() => shift(-1)} aria-label={view === "week" ? "Предыдущая неделя" : "Предыдущий день"} className="p-2 text-ink-muted hover:text-brand"><ChevronLeft className="size-4" /></button>
-          <button onClick={goToday} className="border-x border-line px-3 py-1.5 text-sm font-semibold hover:text-brand">Сегодня</button>
-          <button onClick={() => shift(1)} aria-label={view === "week" ? "Следующая неделя" : "Следующий день"} className="p-2 text-ink-muted hover:text-brand"><ChevronRight className="size-4" /></button>
+        <div className="inline-flex items-center overflow-hidden rounded-lg border border-line bg-surface shadow-sm" role="group" aria-label="Навигация по датам">
+          {STEPS.slice(0, 2).map(({ days: n, icon: Icon, label }) => (
+            <button
+              key={n}
+              onClick={() => shift(n)}
+              title={label}
+              aria-label={label}
+              className="p-2 text-ink-muted transition-colors duration-150 hover:bg-muted hover:text-brand focus-visible:bg-muted focus-visible:text-brand focus-visible:outline-none"
+            >
+              <Icon className="size-4" aria-hidden />
+            </button>
+          ))}
+          <button
+            onClick={goToday}
+            title="Вернуться к текущей дате"
+            className="border-x border-line px-3 py-1.5 text-sm font-semibold transition-colors duration-150 hover:bg-muted hover:text-brand focus-visible:bg-muted focus-visible:text-brand focus-visible:outline-none"
+          >
+            Сегодня
+          </button>
+          {STEPS.slice(2).map(({ days: n, icon: Icon, label }) => (
+            <button
+              key={n}
+              onClick={() => shift(n)}
+              title={label}
+              aria-label={label}
+              className="p-2 text-ink-muted transition-colors duration-150 hover:bg-muted hover:text-brand focus-visible:bg-muted focus-visible:text-brand focus-visible:outline-none"
+            >
+              <Icon className="size-4" aria-hidden />
+            </button>
+          ))}
         </div>
         <span className="rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white tabular-nums first-letter:uppercase">{range}</span>
         <div className="inline-flex rounded-lg border border-line bg-surface p-0.5 shadow-sm" role="group" aria-label="Вид">
           {(["week", "day"] as const).map((v) => (
             <button
               key={v}
-              onClick={() => setView(v)}
+              onClick={() => changeView(v)}
               aria-pressed={view === v}
               className={`rounded-md px-3 py-1 text-sm font-semibold transition-colors ${view === v ? "bg-brand text-white" : "text-ink-muted hover:text-ink"}`}
             >
@@ -475,7 +533,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
       {editing && (
         <ScheduleDialog
           task={merged.find((t) => t.id === editing.id) ?? editing}
-          defaultDate={anchor ? iso(anchor) : todayIso}
+          defaultDate={focusDate}
           saving={saving.has(editing.id)}
           onClose={() => setEditing(null)}
           onSave={(s) => { setSchedule(editing.id, s); setEditing(null); }}
