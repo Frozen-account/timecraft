@@ -57,6 +57,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return json({ ok: false, error: "invalid_patch", detail: "isDailyFocus requires scheduledDate" }, 400);
     }
 
+    // Moving a focus task's date has to drop the flag inside the same UPDATE, then re-apply it:
+    //  - to null, the check constraint (focus needs a date) would reject the row;
+    //  - to a date that already has a focus task, the unique index would reject it.
+    // Re-applying afterwards goes through set_daily_focus, which clears the incumbent first.
+    const dateChanges =
+      "scheduledDate" in patch && (patch.scheduledDate ?? null) !== (existing.scheduledDate ?? null);
+    const dropFocusFirst = dateChanges && existing.isDailyFocus === true;
+
     const touchesOtherFields =
       patch.status !== undefined ||
       patch.priority !== undefined ||
@@ -71,12 +79,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       ...("scheduledDate" in patch && { scheduled_date: resolved.scheduledDate }),
       ...("scheduledTime" in patch && { scheduled_time: resolved.scheduledTime }),
       ...("durationMinutes" in patch && { duration_minutes: resolved.durationMinutes }),
+      ...(dropFocusFirst && { is_daily_focus: false }),
     });
 
     // After the schedule is in place, so "others on that date" is computed against the new date.
     // That ordering means the row update is already committed if this step fails, so say so
     // rather than letting the caller assume the whole patch was rejected.
-    if (wantsFocus !== (existing.isDailyFocus === true)) {
+    const focusAfterUpdate = dropFocusFirst ? false : existing.isDailyFocus === true;
+    if (wantsFocus !== focusAfterUpdate) {
       try {
         await setDailyFocus(caller.client, id, wantsFocus);
       } catch (err) {

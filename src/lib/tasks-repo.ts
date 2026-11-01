@@ -136,6 +136,7 @@ export async function updateTask(
     scheduled_date?: string | null;
     scheduled_time?: string | null;
     duration_minutes?: number | null;
+    is_daily_focus?: boolean;
   },
 ): Promise<Task> {
   const { error } = await client.from(TABLE).update(patch).eq("id", id);

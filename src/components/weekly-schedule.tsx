@@ -8,6 +8,7 @@ import {
   Loader2, PanelRightClose, PanelRightOpen, Plus, Star, X,
 } from "lucide-react";
 import { DailyFocusBadge, DailyFocusToggle, FOCUS_BLOCK } from "@/components/daily-focus";
+import { DONE_CARD, DONE_TITLE, DoneBadge, DoneCheckbox, usePreviousStatus } from "@/components/done-checkbox";
 import { DialogFrame, fieldCls } from "@/components/dialog-frame";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -89,6 +90,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   // Ids with a PATCH in flight, plus the last failure, so a drag that is rejected says why.
   const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const previousStatus = usePreviousStatus();
   const [dragId, setDragId] = useState<string | null>(null);
   // "allday:<date>" | "slot:<date>:<hour>" | "tray"
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -179,6 +181,11 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
       durationMinutes: s?.durationMinutes ?? null,
       ...(isDailyFocus !== undefined && s ? { isDailyFocus } : {}),
     });
+  };
+
+  const toggleDone = (task: Task, next: boolean) => {
+    previousStatus.remember(task);
+    void patchTask(task.id, { status: next ? "done" : previousStatus.restore(task.id) });
   };
 
   async function createTask(draft: Omit<Task, "id">): Promise<string | null> {
@@ -369,25 +376,37 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                     className={`flex min-h-10 flex-col gap-1 border-l border-line p-1 transition-colors duration-150 ${dropCls(key)}`}
                   >
                     {allDay.map((t) => (
+                      <div key={t.id} className="flex items-center gap-1">
+                        <DoneCheckbox
+                          done={t.status === "done"}
+                          saving={saving.has(t.id)}
+                          title={t.title}
+                          onToggle={(next) => toggleDone(t, next)}
+                          className="size-3.5"
+                        />
                       <button
-                        key={t.id}
                         {...dragProps(t)}
                         onClick={() => setEditing(t)}
                         title="Назначить время или перетащить"
-                        className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] font-semibold leading-snug transition-colors ${
-                          t.isDailyFocus
+                        className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] font-semibold leading-snug transition-colors ${
+                          t.isDailyFocus && t.status !== "done"
                             ? `border-amber-400 bg-amber-50 ${FOCUS_BLOCK}`
                             : "border-dashed border-brand/50 bg-surface hover:border-brand hover:bg-brand-soft/40"
-                        } ${dragCls(t)}`}
+                        } ${t.status === "done" ? DONE_CARD : ""} ${dragCls(t)}`}
                       >
-                        {t.isDailyFocus ? (
+                        {t.isDailyFocus && t.status !== "done" ? (
                           <Star className="size-3 shrink-0 text-amber-500" aria-hidden fill="currentColor" />
                         ) : (
                           <span className={`size-1.5 shrink-0 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
                         )}
-                        <span className="line-clamp-2 flex-1">{t.title}</span>
-                        <CalendarPlus className="size-3.5 shrink-0 text-brand" aria-hidden />
+                        <span className={`line-clamp-2 flex-1 ${t.status === "done" ? DONE_TITLE : ""}`}>{t.title}</span>
+                        {t.status === "done" ? (
+                          <DoneBadge compact />
+                        ) : (
+                          <CalendarPlus className="size-3.5 shrink-0 text-brand" aria-hidden />
+                        )}
                       </button>
+                      </div>
                     ))}
                   </div>
                 );
@@ -459,36 +478,56 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                       const pr = PRIORITY[b.task.priority];
                       const initiative = b.task.link ? INITIATIVE_LABEL[b.task.link] : undefined;
                       const projectLabel = b.task.project;
+                      const height = Math.max(bottom - top - 2, 22);
+                      const done = b.task.status === "done";
                       return (
-                        <button
+                        <div
                           key={b.task.id}
-                          {...dragProps(b.task)}
-                          onClick={() => setEditing(b.task)}
-                          className={`absolute overflow-hidden rounded-lg border border-line border-l-4 p-1.5 text-left shadow-sm transition-all duration-200 hover:z-10 hover:shadow-md ${
-                            b.task.isDailyFocus ? `z-10 bg-amber-50 ${FOCUS_BLOCK}` : "bg-surface"
-                          } ${dragCls(b.task)}`}
+                          className="absolute"
                           style={{
                             top: top + 1,
-                            height: Math.max(bottom - top - 2, 22),
+                            height,
                             left: `calc(${(b.lane / b.lanes) * 100}% + 2px)`,
                             width: `calc(${100 / b.lanes}% - 4px)`,
-                            borderLeftColor: getWorkspace(b.task.workspace).color,
                           }}
                         >
-                          <span className="flex items-center gap-1 text-[11px] font-semibold text-ink-muted tabular-nums">
-                            <span className={`size-1.5 shrink-0 rounded-full ${pr.dot}`} aria-label={`Приоритет: ${pr.label}`} />
-                            {fmtTime(b.start)}–{fmtTime(b.end)}
-                          </span>
-                          <span className="mt-0.5 line-clamp-2 text-xs font-semibold leading-snug">{b.task.title}</span>
-                          <span className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded bg-ink px-1 py-px text-[10px] font-semibold text-white">{projectLabel}</span>
-                            {initiative && initiative !== projectLabel && (
-                              <span className="rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line">{initiative}</span>
-                            )}
-                            {b.task.isDailyFocus && <DailyFocusBadge compact />}
-                            {showWorkspace && <WorkspaceBadge id={b.task.workspace} />}
-                          </span>
-                        </button>
+                          <button
+                            {...dragProps(b.task)}
+                            onClick={() => setEditing(b.task)}
+                            className={`size-full overflow-hidden rounded-lg border border-line border-l-4 p-1.5 text-left shadow-sm transition-all duration-200 hover:z-10 hover:shadow-md ${
+                              b.task.isDailyFocus && !done ? `z-10 bg-amber-50 ${FOCUS_BLOCK}` : "bg-surface"
+                            } ${done ? DONE_CARD : ""} ${dragCls(b.task)}`}
+                            style={{ borderLeftColor: getWorkspace(b.task.workspace).color }}
+                          >
+                            <span className="flex items-center gap-1 text-[11px] font-semibold text-ink-muted tabular-nums">
+                              <span className={`size-1.5 shrink-0 rounded-full ${pr.dot}`} aria-label={`Приоритет: ${pr.label}`} />
+                              {fmtTime(b.start)}–{fmtTime(b.end)}
+                            </span>
+                            <span className={`mt-0.5 line-clamp-2 text-xs font-semibold leading-snug ${done ? DONE_TITLE : ""}`}>
+                              {b.task.title}
+                            </span>
+                            <span className="mt-1 flex flex-wrap gap-1">
+                              {done && <DoneBadge compact />}
+                              <span className="rounded bg-ink px-1 py-px text-[10px] font-semibold text-white">{projectLabel}</span>
+                              {initiative && initiative !== projectLabel && (
+                                <span className="rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line">{initiative}</span>
+                              )}
+                              {b.task.isDailyFocus && !done && <DailyFocusBadge compact />}
+                              {showWorkspace && <WorkspaceBadge id={b.task.workspace} />}
+                            </span>
+                          </button>
+                          {/* Hidden on very short blocks, where it would cover the title. */}
+                          {height >= 34 && (
+                            <span className="absolute right-1 top-1 z-20 rounded bg-surface/90 p-px shadow-sm">
+                              <DoneCheckbox
+                                done={done}
+                                saving={saving.has(b.task.id)}
+                                title={b.task.title}
+                                onToggle={(next) => toggleDone(b.task, next)}
+                              />
+                            </span>
+                          )}
+                        </div>
                       );
                     })}
                     {showNow && (
@@ -529,7 +568,16 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                     <span className={PRIORITY[t.priority].text}>{PRIORITY[t.priority].label}</span>
                     <span className="ml-auto rounded bg-ink px-1 py-px text-[10px] text-white">{t.project}</span>
                   </p>
-                  <p className="mt-1 text-sm font-semibold leading-snug">{t.title}</p>
+                  <p className="mt-1 flex items-start gap-2 text-sm font-semibold leading-snug">
+                    <DoneCheckbox
+                      done={t.status === "done"}
+                      saving={saving.has(t.id)}
+                      title={t.title}
+                      onToggle={(next) => toggleDone(t, next)}
+                      className="mt-0.5"
+                    />
+                    <span className="flex-1">{t.title}</span>
+                  </p>
                   <button
                     onClick={() => setEditing(t)}
                     className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-brand px-2.5 py-1 text-xs font-bold text-white transition-colors hover:bg-brand-dark"

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bot, CalendarClock, ExternalLink, Loader2, Sparkles, User } from "lucide-react";
 import { DailyFocusBadge, FOCUS_CARD } from "@/components/daily-focus";
+import { DONE_CARD, DONE_TITLE, DoneBadge, DoneCheckbox, usePreviousStatus } from "@/components/done-checkbox";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import { ALL_WORKSPACES, ASSIGNEES, PROJECTS, projectWorkspace, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
@@ -53,6 +54,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<Status | null>(null);
+  const previousStatus = usePreviousStatus();
   const [assignee, setAssignee] = useState<Assignee | "all">("all");
   const [project, setProject] = useState<Project | "all">("all");
   const showWorkspace = workspace === ALL_WORKSPACES;
@@ -174,6 +176,10 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
                     }}
                     onDragEnd={endDrag}
                     onStatusChange={(status) => void setStatus(task.id, status)}
+                    onToggleDone={(next) => {
+                      previousStatus.remember(task);
+                      void setStatus(task.id, next ? "done" : previousStatus.restore(task.id));
+                    }}
                   />
                 ))}
                 {items.length === 0 && (
@@ -191,7 +197,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
 }
 
 function TaskCard({
-  task, showWorkspace, saving, dragging, onDragStart, onDragEnd, onStatusChange,
+  task, showWorkspace, saving, dragging, onDragStart, onDragEnd, onStatusChange, onToggleDone,
 }: {
   task: Task;
   showWorkspace: boolean;
@@ -200,10 +206,12 @@ function TaskCard({
   onDragStart: (e: React.DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
   onStatusChange: (status: Status) => void;
+  onToggleDone: (next: boolean) => void;
 }) {
   const a = ASSIGNEE_STYLE[task.assignee];
   const AssigneeIcon = a.icon;
   const pr = PRIORITY[task.priority];
+  const done = task.status === "done";
   return (
     <article
       draggable={!saving}
@@ -211,12 +219,15 @@ function TaskCard({
       onDragEnd={onDragEnd}
       aria-busy={saving || undefined}
       className={`rounded-xl border p-3.5 shadow-sm transition-all duration-200 hover:shadow-md ${
-        task.isDailyFocus ? `border-amber-300 ${FOCUS_CARD}` : "border-line bg-surface"
-      } ${saving ? "opacity-60" : "cursor-grab active:cursor-grabbing"} ${dragging ? "opacity-50" : ""}`}
+        task.isDailyFocus && !done ? `border-amber-300 ${FOCUS_CARD}` : "border-line bg-surface"
+      } ${done ? DONE_CARD : ""} ${saving ? "opacity-60" : "cursor-grab active:cursor-grabbing"} ${
+        dragging ? "opacity-50" : ""
+      }`}
     >
-      {(task.isDailyFocus || showWorkspace) && (
+      {(done || task.isDailyFocus || showWorkspace) && (
         <p className="mb-2 flex flex-wrap items-center gap-1.5">
-          {task.isDailyFocus && <DailyFocusBadge />}
+          {done && <DoneBadge />}
+          {task.isDailyFocus && !done && <DailyFocusBadge />}
           {showWorkspace && <WorkspaceBadge id={task.workspace} />}
         </p>
       )}
@@ -227,13 +238,16 @@ function TaskCard({
           {pr.label}
         </span>
       </div>
-      <h3 className="text-sm font-semibold leading-snug">
-        {task.link ? (
-          <Link href={task.link} className="hover:text-brand hover:underline">
-            {task.title} <ExternalLink className="inline size-3 align-baseline text-ink-muted" aria-hidden />
-          </Link>
-        ) : task.title}
-      </h3>
+      <div className="flex items-start gap-2">
+        <DoneCheckbox done={done} saving={saving} title={task.title} onToggle={onToggleDone} className="mt-0.5" />
+        <h3 className={`flex-1 text-sm font-semibold leading-snug ${done ? DONE_TITLE : ""}`}>
+          {task.link ? (
+            <Link href={task.link} className="hover:text-brand hover:underline">
+              {task.title} <ExternalLink className="inline size-3 align-baseline text-ink-muted" aria-hidden />
+            </Link>
+          ) : task.title}
+        </h3>
+      </div>
       {task.notes && <p className="mt-1.5 text-xs leading-relaxed text-ink-muted">{task.notes}</p>}
       {task.tags.length > 0 && (
         <div className="mt-2.5 flex flex-wrap gap-1">
