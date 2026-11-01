@@ -15,6 +15,7 @@ export type TaskPatch = {
   scheduledDate?: string | null;
   scheduledTime?: string | null;
   durationMinutes?: number | null;
+  isDailyFocus?: boolean;
 };
 
 export type Parsed<T> = { value: T } | { error: string };
@@ -78,6 +79,13 @@ export function parseDraft(body: Rec): Parsed<Draft> {
 
   const notes = typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : undefined;
 
+  // "Дело дня" is the focus *of a day*, so it cannot exist without one.
+  if (body.isDailyFocus !== undefined && typeof body.isDailyFocus !== "boolean") {
+    return { error: "isDailyFocus must be a boolean" };
+  }
+  const isDailyFocus = body.isDailyFocus === true;
+  if (isDailyFocus && !scheduledDate) return { error: "isDailyFocus requires scheduledDate" };
+
   // The workspace follows the direction and is never taken from the client; a payload that
   // disagrees is a caller bug, so report it rather than silently overriding.
   const workspace = projectWorkspace(project);
@@ -95,12 +103,13 @@ export function parseDraft(body: Rec): Parsed<Draft> {
       ...(scheduledDate && { scheduledDate }),
       ...(scheduledTime && { scheduledTime }),
       ...(durationMinutes !== undefined && { durationMinutes }),
+      ...(isDailyFocus && { isDailyFocus: true }),
     },
   };
 }
 
 const SCHEDULE_KEYS = ["scheduledDate", "scheduledTime", "durationMinutes"] as const;
-const PATCHABLE = ["status", "priority", ...SCHEDULE_KEYS] as const;
+const PATCHABLE = ["status", "priority", "isDailyFocus", ...SCHEDULE_KEYS] as const;
 
 export function parsePatch(body: Rec): Parsed<TaskPatch> {
   const unknown = Object.keys(body).filter((k) => !PATCHABLE.includes(k as (typeof PATCHABLE)[number]));
@@ -119,6 +128,11 @@ export function parsePatch(body: Rec): Parsed<TaskPatch> {
     const priority = pick<Priority>(body, "priority", PRIORITIES);
     if (!priority) return { error: `priority must be one of ${PRIORITIES.join(", ")}` };
     patch.priority = priority;
+  }
+
+  if ("isDailyFocus" in body) {
+    if (typeof body.isDailyFocus !== "boolean") return { error: "isDailyFocus must be a boolean" };
+    patch.isDailyFocus = body.isDailyFocus;
   }
 
   // null is meaningful here: it unschedules. Only a wrong *type* is an error.

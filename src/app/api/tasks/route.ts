@@ -5,7 +5,7 @@
 // bypasses RLS, so the agent's direction and workspace scope is enforced here.
 import { NextResponse, type NextRequest } from "next/server";
 import { callerMayTouch, resolveCaller } from "@/lib/task-auth";
-import { fetchTaskIds, insertTask } from "@/lib/tasks-repo";
+import { fetchTask, fetchTaskIds, insertTask, setDailyFocus } from "@/lib/tasks-repo";
 import { parseDraft } from "@/lib/task-validate";
 import { uniqueSlug } from "@/lib/slug";
 
@@ -38,10 +38,21 @@ export async function POST(request: NextRequest) {
 
   try {
     const taken = await fetchTaskIds(caller.client);
-    const task = await insertTask(caller.client, draft, uniqueSlug(draft.title, taken));
+    const id = uniqueSlug(draft.title, taken);
+    // Inserted without the flag, then moved with set_daily_focus, so the incumbent focus on that
+    // date is cleared in the same statement instead of colliding with the unique index.
+    const task = await insertTask(caller.client, { ...draft, isDailyFocus: undefined }, id);
+    if (draft.isDailyFocus) {
+      await setDailyFocus(caller.client, id, true);
+      return json({ ok: true, task: (await fetchTask(caller.client, id)) ?? task }, 201);
+    }
     return json({ ok: true, task }, 201);
   } catch (err) {
     const { message, code } = err as Error & { code?: string };
+    // The migration adding is_daily_focus / set_daily_focus has not been applied yet.
+    if (code === "PGRST202" || code === "42883" || code === "42703") {
+      return json({ ok: false, error: "daily_focus_unavailable", detail: "Миграция 20261101000000_daily_focus.sql ещё не применена." }, 503);
+    }
     // 23505 = unique violation: another request claimed the slug between the scan and the insert.
     if (code === "23505") return json({ ok: false, error: "id_conflict", detail: "Попробуйте ещё раз." }, 409);
     if (code === "42501") return json({ ok: false, error: "forbidden" }, 403);

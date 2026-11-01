@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   CalendarPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock, ExternalLink, Inbox,
-  Loader2, PanelRightClose, PanelRightOpen, Plus, X,
+  Loader2, PanelRightClose, PanelRightOpen, Plus, Star, X,
 } from "lucide-react";
+import { DailyFocusBadge, DailyFocusToggle, FOCUS_BLOCK } from "@/components/daily-focus";
 import { DialogFrame, fieldCls } from "@/components/dialog-frame";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -169,12 +170,14 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
     }
   }
 
-  // Unscheduling sends explicit nulls; the endpoint clears the dependent columns together.
-  const setSchedule = (id: string, s: Schedule | null) => {
+  // Unscheduling sends explicit nulls; the endpoint clears the dependent columns together and
+  // gives up "дело дня", which cannot exist without a date.
+  const setSchedule = (id: string, s: Schedule | null, isDailyFocus?: boolean) => {
     void patchTask(id, {
       scheduledDate: s?.scheduledDate ?? null,
       scheduledTime: s?.scheduledTime ?? null,
       durationMinutes: s?.durationMinutes ?? null,
+      ...(isDailyFocus !== undefined && s ? { isDailyFocus } : {}),
     });
   };
 
@@ -371,9 +374,17 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                         {...dragProps(t)}
                         onClick={() => setEditing(t)}
                         title="Назначить время или перетащить"
-                        className={`flex items-center gap-1.5 rounded-md border border-dashed border-brand/50 bg-surface px-1.5 py-1 text-left text-[11px] font-semibold leading-snug transition-colors hover:border-brand hover:bg-brand-soft/40 ${dragCls(t)}`}
+                        className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] font-semibold leading-snug transition-colors ${
+                          t.isDailyFocus
+                            ? `border-amber-400 bg-amber-50 ${FOCUS_BLOCK}`
+                            : "border-dashed border-brand/50 bg-surface hover:border-brand hover:bg-brand-soft/40"
+                        } ${dragCls(t)}`}
                       >
-                        <span className={`size-1.5 shrink-0 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
+                        {t.isDailyFocus ? (
+                          <Star className="size-3 shrink-0 text-amber-500" aria-hidden fill="currentColor" />
+                        ) : (
+                          <span className={`size-1.5 shrink-0 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
+                        )}
                         <span className="line-clamp-2 flex-1">{t.title}</span>
                         <CalendarPlus className="size-3.5 shrink-0 text-brand" aria-hidden />
                       </button>
@@ -453,7 +464,9 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                           key={b.task.id}
                           {...dragProps(b.task)}
                           onClick={() => setEditing(b.task)}
-                          className={`absolute overflow-hidden rounded-lg border border-line border-l-4 bg-surface p-1.5 text-left shadow-sm transition-all duration-200 hover:z-10 hover:shadow-md ${dragCls(b.task)}`}
+                          className={`absolute overflow-hidden rounded-lg border border-line border-l-4 p-1.5 text-left shadow-sm transition-all duration-200 hover:z-10 hover:shadow-md ${
+                            b.task.isDailyFocus ? `z-10 bg-amber-50 ${FOCUS_BLOCK}` : "bg-surface"
+                          } ${dragCls(b.task)}`}
                           style={{
                             top: top + 1,
                             height: Math.max(bottom - top - 2, 22),
@@ -472,6 +485,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                             {initiative && initiative !== projectLabel && (
                               <span className="rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line">{initiative}</span>
                             )}
+                            {b.task.isDailyFocus && <DailyFocusBadge compact />}
                             {showWorkspace && <WorkspaceBadge id={b.task.workspace} />}
                           </span>
                         </button>
@@ -536,7 +550,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
           defaultDate={focusDate}
           saving={saving.has(editing.id)}
           onClose={() => setEditing(null)}
-          onSave={(s) => { setSchedule(editing.id, s); setEditing(null); }}
+          onSave={(s, focus) => { setSchedule(editing.id, s, focus); setEditing(null); }}
         />
       )}
 
@@ -552,13 +566,14 @@ function ScheduleDialog({ task, defaultDate, saving, onClose, onSave }: {
   defaultDate: string;
   saving: boolean;
   onClose: () => void;
-  onSave: (s: Schedule | null) => void;
+  onSave: (s: Schedule | null, isDailyFocus: boolean) => void;
 }) {
   const [date, setDate] = useState(task.scheduledDate ?? defaultDate);
   const [time, setTime] = useState(task.scheduledTime && TIME_OPTIONS.includes(task.scheduledTime) ? task.scheduledTime : "10:00");
   const [duration, setDuration] = useState(task.durationMinutes ?? 60);
   // Date-only tasks open with a time selected, since the point is usually to assign one.
   const [allDay, setAllDay] = useState(false);
+  const [isDailyFocus, setIsDailyFocus] = useState(task.isDailyFocus === true);
   const pr = PRIORITY[task.priority];
   const endsLate = toMinutes(time) + duration > END_HOUR * 60;
 
@@ -587,7 +602,7 @@ function ScheduleDialog({ task, defaultDate, saving, onClose, onSave }: {
           onSubmit={(e) => {
             e.preventDefault();
             if (!date) return;
-            onSave(allDay ? { scheduledDate: date } : { scheduledDate: date, scheduledTime: time, durationMinutes: duration });
+            onSave(allDay ? { scheduledDate: date } : { scheduledDate: date, scheduledTime: time, durationMinutes: duration }, isDailyFocus);
           }}
         >
           <h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><Clock className="size-4 text-brand" aria-hidden /> {task.scheduledTime ? "Перенести" : "Назначить время"}</h3>
@@ -611,9 +626,12 @@ function ScheduleDialog({ task, defaultDate, saving, onClose, onSave }: {
             На весь день (без конкретного времени)
           </label>
           {!allDay && endsLate && <p className="mt-2 text-xs text-amber-700">Блок заканчивается после 20:00 — в сетке он будет обрезан.</p>}
+          <div className="mt-3">
+            <DailyFocusToggle checked={isDailyFocus} hasDate={Boolean(date)} disabled={saving} onChange={setIsDailyFocus} />
+          </div>
           <div className="mt-5 flex flex-wrap items-center gap-2">
             {task.scheduledDate && (
-              <button type="button" disabled={saving} onClick={() => onSave(null)} className="rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-brand disabled:opacity-60">Снять с расписания</button>
+              <button type="button" disabled={saving} onClick={() => onSave(null, false)} className="rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-brand disabled:opacity-60">Снять с расписания</button>
             )}
             <button type="button" onClick={onClose} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink">Отмена</button>
             <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md disabled:opacity-60">
@@ -649,6 +667,7 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
   const [duration, setDuration] = useState(initial.durationMinutes ?? 60);
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState("");
+  const [isDailyFocus, setIsDailyFocus] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timed = Boolean(date && time);
@@ -679,6 +698,7 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
             ...(notes.trim() && { notes: notes.trim() }),
             ...(date && { scheduledDate: date }),
             ...(timed && { scheduledTime: time, durationMinutes: Math.min(Math.max(Math.round(duration / 15) * 15, 15), 720) }),
+            ...(date && isDailyFocus && { isDailyFocus: true }),
           });
           // On success the parent closes the dialog; on failure keep the input.
           if (message) {
@@ -712,7 +732,15 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
         </label>
         <div className="grid grid-cols-3 gap-3 sm:col-span-2">
           <label className={labelCls}>Дата
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`mt-1 ${fieldCls}`} />
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => {
+                setDate(e.target.value);
+                if (!e.target.value) setIsDailyFocus(false); // focus cannot outlive its day
+              }}
+              className={`mt-1 ${fieldCls}`}
+            />
           </label>
           <label className={labelCls}>Время
             <input type="time" step={900} value={time} disabled={!date} onChange={(e) => setTime(e.target.value)} className={`mt-1 ${fieldCls} disabled:opacity-50`} />
@@ -727,6 +755,9 @@ function CreateTaskDialog({ initial, workspace, onClose, onCreate }: {
         <label className={`${labelCls} sm:col-span-2`}>Заметки
           <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} className={`mt-1 ${fieldCls}`} />
         </label>
+        <div className="sm:col-span-2">
+          <DailyFocusToggle checked={isDailyFocus} hasDate={Boolean(date)} disabled={pending} onChange={setIsDailyFocus} />
+        </div>
         <label className={`${labelCls} sm:col-span-2`}>Теги (через запятую)
           <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="sales, uk, call" className={`mt-1 ${fieldCls}`} />
         </label>

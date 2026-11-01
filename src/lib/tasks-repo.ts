@@ -10,8 +10,10 @@ import {
 /** Read through the view: `workspace` is derived from directions, never stored on the row. */
 const VIEW = "tasks_with_workspace";
 const TABLE = "tasks";
-const COLUMNS =
-  "id,title,status,priority,assignee,direction,tags,notes,due,link,scheduled_date,scheduled_time,duration_minutes";
+// Deliberately "*" rather than an explicit column list: the view is rebuilt by migrations, and
+// naming a column that a not-yet-applied migration would add turns every read into an error
+// (and a silent fallback to backlog/tasks.json). Unknown columns are simply ignored by rowToTask.
+const COLUMNS = "*";
 
 type Row = {
   id: string;
@@ -28,6 +30,8 @@ type Row = {
   scheduled_time: string | null;
   duration_minutes: number | null;
   workspace?: string | null;
+  // Absent until 20261101000000_daily_focus.sql is applied.
+  is_daily_focus?: boolean | null;
 };
 
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined =>
@@ -66,6 +70,8 @@ export function rowToTask(row: Row): Task | null {
     scheduledDate: row.scheduled_date ?? undefined,
     scheduledTime: toHHMM(row.scheduled_time),
     durationMinutes: row.duration_minutes ?? undefined,
+    // Only set when true, like the other optional fields, so payloads stay lean.
+    ...(row.is_daily_focus ? { isDailyFocus: true } : {}),
   };
 }
 
@@ -88,9 +94,19 @@ export function taskToRow(task: Omit<Task, "id">, id: string) {
   };
 }
 
+/**
+ * Moves "Дело дня" to this task, or clears it. Done through the set_daily_focus function so the
+ * clear-then-set pair is one statement: two clients racing on the same date would otherwise both
+ * clear and both set, and the unique index would reject the loser with an opaque 23505.
+ */
+export async function setDailyFocus(client: SupabaseClient, id: string, value: boolean): Promise<void> {
+  const { error } = await client.rpc("set_daily_focus", { p_task_id: id, p_value: value });
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+}
+
 /** Null signals "database unreachable" so the caller can fall back; [] means genuinely empty. */
 export async function fetchTasks(client: SupabaseClient): Promise<Task[] | null> {
-  const { data, error } = await client.from(VIEW).select(`${COLUMNS},workspace`).order("id");
+  const { data, error } = await client.from(VIEW).select(COLUMNS).order("id");
   if (error) {
     console.error(`[tasks-repo] ${VIEW} read failed: ${error.message}`);
     return null;
@@ -105,7 +121,7 @@ export async function fetchTaskIds(client: SupabaseClient): Promise<Set<string>>
 }
 
 export async function fetchTask(client: SupabaseClient, id: string): Promise<Task | null> {
-  const { data, error } = await client.from(VIEW).select(`${COLUMNS},workspace`).eq("id", id).maybeSingle();
+  const { data, error } = await client.from(VIEW).select(COLUMNS).eq("id", id).maybeSingle();
   if (error) throw Object.assign(new Error(error.message), { code: error.code });
   return data ? rowToTask(data as Row) : null;
 }
@@ -133,7 +149,7 @@ export async function insertTask(client: SupabaseClient, task: Omit<Task, "id">,
   const { error } = await client.from(TABLE).insert(taskToRow(task, id));
   if (error) throw Object.assign(new Error(error.message), { code: error.code });
   // Read back through the view so the caller gets the derived workspace, not a guess.
-  const { data, error: readError } = await client.from(VIEW).select(`${COLUMNS},workspace`).eq("id", id).single();
+  const { data, error: readError } = await client.from(VIEW).select(COLUMNS).eq("id", id).single();
   if (readError) throw new Error(readError.message);
   const created = rowToTask(data as Row);
   if (!created) throw new Error("inserted row did not match the Task shape");

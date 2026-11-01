@@ -5,7 +5,7 @@
 // already exists, since none of the patchable fields can move a task between workspaces.
 import { NextResponse, type NextRequest } from "next/server";
 import { callerMayTouch, resolveCaller } from "@/lib/task-auth";
-import { fetchTask, updateTask } from "@/lib/tasks-repo";
+import { fetchTask, setDailyFocus, updateTask } from "@/lib/tasks-repo";
 import { checkSchedule, parsePatch } from "@/lib/task-validate";
 
 const json = (body: unknown, status = 200) =>
@@ -51,7 +51,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const scheduleError = checkSchedule(resolved);
     if (scheduleError) return json({ ok: false, error: "invalid_patch", detail: scheduleError }, 400);
 
-    const task = await updateTask(caller.client, id, {
+    // Focus requires a date on the resulting row; unscheduling therefore gives it up.
+    const wantsFocus = patch.isDailyFocus ?? (existing.isDailyFocus === true && resolved.scheduledDate !== null);
+    if (patch.isDailyFocus === true && resolved.scheduledDate === null) {
+      return json({ ok: false, error: "invalid_patch", detail: "isDailyFocus requires scheduledDate" }, 400);
+    }
+
+    const touchesOtherFields =
+      patch.status !== undefined ||
+      patch.priority !== undefined ||
+      "scheduledDate" in patch ||
+      "scheduledTime" in patch ||
+      "durationMinutes" in patch;
+
+    await updateTask(caller.client, id, {
       ...(patch.status !== undefined && { status: patch.status }),
       ...(patch.priority !== undefined && { priority: patch.priority }),
       // Unscheduling clears the dependent columns too, so the row cannot keep a stale time.
@@ -59,10 +72,38 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       ...("scheduledTime" in patch && { scheduled_time: resolved.scheduledTime }),
       ...("durationMinutes" in patch && { duration_minutes: resolved.durationMinutes }),
     });
+
+    // After the schedule is in place, so "others on that date" is computed against the new date.
+    // That ordering means the row update is already committed if this step fails, so say so
+    // rather than letting the caller assume the whole patch was rejected.
+    if (wantsFocus !== (existing.isDailyFocus === true)) {
+      try {
+        await setDailyFocus(caller.client, id, wantsFocus);
+      } catch (err) {
+        const { message, code } = err as Error & { code?: string };
+        const saved = touchesOtherFields ? " Остальные поля сохранены." : "";
+        if (code === "PGRST202" || code === "42883" || code === "42703") {
+          return json(
+            { ok: false, error: "daily_focus_unavailable", detail: `Миграция 20261101000000_daily_focus.sql ещё не применена.${saved}` },
+            503,
+          );
+        }
+        if (code === "42501") return json({ ok: false, error: "forbidden", detail: `Нет прав на «дело дня».${saved}` }, 403);
+        console.error(`[api/tasks/${id}] daily focus failed: ${message}`);
+        return json({ ok: false, error: "daily_focus_failed", detail: `${message}${saved}` }, 500);
+      }
+    }
+
+    const task = await fetchTask(caller.client, id);
+    if (!task) return json({ ok: false, error: "not_found" }, 404);
     return json({ ok: true, task });
   } catch (err) {
     const { message, code } = err as Error & { code?: string };
     if (code === "42501") return json({ ok: false, error: "forbidden" }, 403);
+    // The migration adding is_daily_focus / set_daily_focus has not been applied yet.
+    if (code === "PGRST202" || code === "42883" || code === "42703") {
+      return json({ ok: false, error: "daily_focus_unavailable", detail: "Миграция 20261101000000_daily_focus.sql ещё не применена." }, 503);
+    }
     console.error(`[api/tasks/${id}] update failed: ${message}`);
     return json({ ok: false, error: "update_failed", detail: message }, 500);
   }

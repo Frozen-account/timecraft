@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bot, CalendarClock, ExternalLink, Loader2, Sparkles, User } from "lucide-react";
+import { DailyFocusBadge, FOCUS_CARD } from "@/components/daily-focus";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import { ALL_WORKSPACES, ASSIGNEES, PROJECTS, projectWorkspace, type Assignee, type Priority, type Project, type Status, type Task } from "@/lib/types";
@@ -209,13 +210,14 @@ function TaskCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       aria-busy={saving || undefined}
-      className={`rounded-xl border border-line bg-surface p-3.5 shadow-sm transition-all duration-200 hover:shadow-md ${
-        saving ? "opacity-60" : "cursor-grab active:cursor-grabbing"
-      } ${dragging ? "opacity-50" : ""}`}
+      className={`rounded-xl border p-3.5 shadow-sm transition-all duration-200 hover:shadow-md ${
+        task.isDailyFocus ? `border-amber-300 ${FOCUS_CARD}` : "border-line bg-surface"
+      } ${saving ? "opacity-60" : "cursor-grab active:cursor-grabbing"} ${dragging ? "opacity-50" : ""}`}
     >
-      {showWorkspace && (
-        <p className="mb-2">
-          <WorkspaceBadge id={task.workspace} />
+      {(task.isDailyFocus || showWorkspace) && (
+        <p className="mb-2 flex flex-wrap items-center gap-1.5">
+          {task.isDailyFocus && <DailyFocusBadge />}
+          {showWorkspace && <WorkspaceBadge id={task.workspace} />}
         </p>
       )}
       <div className="mb-2 flex items-center justify-between gap-2">

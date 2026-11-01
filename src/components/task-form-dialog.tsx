@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
+import { DailyFocusToggle } from "@/components/daily-focus";
 import { DialogFrame, fieldCls, labelCls } from "@/components/dialog-frame";
 import { WorkspaceAvatar } from "@/components/workspace-switcher";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
@@ -34,6 +35,9 @@ export function TaskFormDialog({
   const [status, setStatus] = useState<Status>("backlog");
   const [assignee, setAssignee] = useState<Assignee>("Human");
   const [due, setDue] = useState("");
+  // Calendar date, separate from the soft deadline above: "дело дня" is tied to a scheduled day.
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [isDailyFocus, setIsDailyFocus] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -54,6 +58,10 @@ export function TaskFormDialog({
       setError("Срок должен быть в формате ГГГГ-ММ-ДД.");
       return;
     }
+    if (isDailyFocus && !scheduledDate) {
+      setError("У «дела дня» должна быть дата в календаре.");
+      return;
+    }
     setPending(true);
     const message = await onCreate({
       title: title.trim(),
@@ -64,6 +72,8 @@ export function TaskFormDialog({
       workspace: derivedWorkspace,
       tags: [],
       ...(due && { due }),
+      ...(scheduledDate && { scheduledDate }),
+      ...(isDailyFocus && { isDailyFocus: true }),
     });
     // On success the parent closes the dialog; on failure keep the input so nothing is retyped.
     if (message) {
@@ -140,11 +150,34 @@ export function TaskFormDialog({
         </label>
 
         <label className={labelCls}>
+          Дата в календаре
+          <input
+            type="date"
+            value={scheduledDate}
+            onChange={(e) => {
+              setScheduledDate(e.target.value);
+              if (!e.target.value) setIsDailyFocus(false); // focus cannot outlive its day
+              setError(null);
+            }}
+            className={`mt-1 ${fieldCls}`}
+          />
+        </label>
+
+        <label className={labelCls}>
           Исполнитель
           <select value={assignee} onChange={(e) => setAssignee(e.target.value as Assignee)} className={`mt-1 ${fieldCls}`}>
             {ASSIGNEES.map((a) => <option key={a}>{a}</option>)}
           </select>
         </label>
+
+        <div className="sm:col-span-2">
+          <DailyFocusToggle
+            checked={isDailyFocus}
+            hasDate={Boolean(scheduledDate)}
+            disabled={pending}
+            onChange={(v) => { setIsDailyFocus(v); setError(null); }}
+          />
+        </div>
 
         {error && <p role="alert" className="text-sm font-semibold text-red-700 sm:col-span-2">{error}</p>}
 

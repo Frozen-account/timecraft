@@ -52,6 +52,7 @@ export interface Task {
   scheduledDate?: string; // YYYY-MM-DD
   scheduledTime?: string; // HH:MM, 24h; requires scheduledDate
   durationMinutes?: number;
+  isDailyFocus?: boolean; // "Дело дня": at most one per scheduledDate, which it requires
 }
 
 export type Schedule = Pick<Task, "scheduledDate" | "scheduledTime" | "durationMinutes">;

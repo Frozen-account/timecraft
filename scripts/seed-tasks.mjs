@@ -77,6 +77,7 @@ const toRow = (t) => ({
   scheduled_date: t.scheduledDate ?? null,
   scheduled_time: t.scheduledTime ?? null,
   duration_minutes: t.durationMinutes ?? null,
+  is_daily_focus: t.isDailyFocus === true,
 });
 
 const tasks = JSON.parse(readFileSync(path.join(ROOT, "backlog", "tasks.json"), "utf8"));

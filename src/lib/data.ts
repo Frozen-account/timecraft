@@ -52,6 +52,7 @@ function readJsonArray(file: string): Rec[] {
  * import source for scripts/seed-tasks.mjs and the fallback when Postgres is unreachable.
  */
 export function getTasksFromFile(): Task[] {
+  const focusByDate = new Map<string, string>();
   return readJsonArray(TASKS_FILE).map((r, i) => {
     const tags = r.tags ?? [];
     if (!Array.isArray(tags) || tags.some((t) => typeof t !== "string")) fail(TASKS_FILE, i, `"tags" must be an array of strings`);
@@ -74,6 +75,18 @@ export function getTasksFromFile(): Task[] {
       r.workspace === undefined
         ? projectWorkspace(project)
         : oneOf<WorkspaceId>(TASKS_FILE, i, r, "workspace", WORKSPACE_IDS);
+    // Mirrors the table's check constraint and unique index, so the fallback snapshot cannot
+    // describe a state the database would reject.
+    if (r.isDailyFocus !== undefined && typeof r.isDailyFocus !== "boolean") {
+      fail(TASKS_FILE, i, `"isDailyFocus" must be a boolean`);
+    }
+    const isDailyFocus = r.isDailyFocus === true;
+    if (isDailyFocus && !scheduledDate) fail(TASKS_FILE, i, `"isDailyFocus" requires "scheduledDate"`);
+    if (isDailyFocus) {
+      const clash = focusByDate.get(scheduledDate!);
+      if (clash) fail(TASKS_FILE, i, `two tasks marked "isDailyFocus" on ${scheduledDate} (also "${clash}")`);
+      focusByDate.set(scheduledDate!, str(TASKS_FILE, i, r, "id")!);
+    }
     return {
       id: str(TASKS_FILE, i, r, "id")!,
       title: str(TASKS_FILE, i, r, "title")!,
@@ -89,6 +102,7 @@ export function getTasksFromFile(): Task[] {
       scheduledDate,
       scheduledTime,
       durationMinutes: duration as number | undefined,
+      ...(isDailyFocus && { isDailyFocus: true }),
     };
   });
 }
@@ -102,6 +116,7 @@ export async function getTasks(): Promise<Task[]> {
   try {
     const rows = await fetchTasks(await createClient());
     if (rows) return rows;
+    console.error("[data] task read returned no result, serving backlog/tasks.json");
   } catch (err) {
     console.error(`[data] task read failed, serving backlog/tasks.json: ${(err as Error).message}`);
   }
@@ -119,6 +134,7 @@ export async function getTasksAsAgent(): Promise<Task[]> {
     if (admin) {
       const rows = await fetchTasks(admin);
       if (rows) return rows;
+      console.error("[data] agent task read returned no result, serving backlog/tasks.json");
     } else {
       console.error("[data] SUPABASE_SERVICE_ROLE_KEY is not set, serving backlog/tasks.json");
     }
