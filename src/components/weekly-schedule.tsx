@@ -9,7 +9,9 @@ import {
 } from "lucide-react";
 import { DailyFocusBadge, DailyFocusToggle, FOCUS_BLOCK } from "@/components/daily-focus";
 import { DONE_CARD, DONE_TITLE, DoneBadge, DoneCheckbox, usePreviousStatus } from "@/components/done-checkbox";
+import { WeekStrip } from "@/components/week-strip";
 import { DialogFrame, fieldCls } from "@/components/dialog-frame";
+import { addDays, iso, isoWeek, isoWeekYear, mondayOf, mondayOfIsoWeek } from "@/lib/dates";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
@@ -44,9 +46,6 @@ const INITIATIVE_LABEL: Record<string, string> = {
 };
 
 // --- date helpers (local time) ---
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-const mondayOf = (d: Date) => addDays(d, -((d.getDay() + 6) % 7));
 const toMinutes = (hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 const fmtTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 const fmtShort = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
@@ -329,8 +328,18 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
 
       <div className={`grid gap-4 ${trayOpen ? "lg:grid-cols-[1fr_18rem]" : ""}`}>
         {/* Time grid */}
-        <div className="overflow-x-auto rounded-xl border border-line bg-surface shadow-sm">
-          <div className={view === "week" ? "min-w-[860px]" : ""}>
+        <div className="rounded-xl border border-line bg-surface shadow-sm">
+          {anchor && (
+            <WeekStrip
+              activeWeek={isoWeek(anchor)}
+              year={isoWeekYear(anchor)}
+              todayWeek={today ? isoWeek(today) : null}
+              todayYear={today ? isoWeekYear(today) : null}
+              onPick={(week) => setAnchor(mondayOfIsoWeek(week, isoWeekYear(anchor)))}
+            />
+          )}
+          <div className="overflow-x-auto rounded-b-xl">
+            <div className={view === "week" ? "min-w-[860px]" : ""}>
             <div className="grid border-b border-line" style={{ gridTemplateColumns: `3.5rem repeat(${Math.max(days.length, 1)}, minmax(0, 1fr))` }}>
               <div />
               {days.map((d) => {
@@ -541,6 +550,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
               })}
             </div>
           </div>
+        </div>
         </div>
 
         {/* Unscheduled tray */}

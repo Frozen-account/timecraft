@@ -38,6 +38,14 @@
   }
 }
 
+/* Horizontal strips (the calendar's ISO week picker) scroll without a visible track. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 body {
   background: var(--color-canvas);
   color: var(--color-ink);
