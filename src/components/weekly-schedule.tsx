@@ -259,7 +259,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
         : days[0].toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="inline-flex items-center overflow-hidden rounded-lg border border-line bg-surface shadow-sm" role="group" aria-label="Навигация по датам">
@@ -326,9 +326,9 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
         </div>
       )}
 
-      <div className={`grid gap-4 ${trayOpen ? "lg:grid-cols-[1fr_18rem]" : ""}`}>
+      <div className={`grid min-w-0 max-w-full gap-4 ${trayOpen ? "lg:grid-cols-[minmax(0,1fr)_18rem]" : ""}`}>
         {/* Time grid */}
-        <div className="rounded-xl border border-line bg-surface shadow-sm">
+        <div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
           {anchor && (
             <WeekStrip
               activeWeek={isoWeek(anchor)}

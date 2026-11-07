@@ -38,9 +38,11 @@
   }
 }
 
-/* Horizontal strips (the calendar's ISO week picker) scroll without a visible track. */
+/* Horizontal strips (the calendar's ISO week picker) scroll without a visible track: the arrow
+   buttons beside the strip are the affordance, and a track would double the row's height. */
 @utility no-scrollbar {
   scrollbar-width: none;
+  -ms-overflow-style: none;
   &::-webkit-scrollbar {
     display: none;
   }
