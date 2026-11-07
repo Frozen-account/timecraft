@@ -3,14 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, Brain, CalendarDays, Clapperboard, FolderOpen, KanbanSquare, LayoutDashboard, LogOut } from "lucide-react";
+import { BarChart3, Bot, Brain, CalendarCheck, CalendarDays, Clapperboard, FolderOpen, KanbanSquare, LayoutDashboard, LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
+// Order is the priority order, and "Сегодня" is the index route: on a phone the app opens on
+// the one screen you can act from, not on the dashboard's wide grid of directions.
 const NAV = [
-  { href: "/", label: "Дашборд", icon: LayoutDashboard },
+  { href: "/", label: "Сегодня", icon: CalendarCheck },
+  { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
   { href: "/tasks", label: "Задачи", icon: KanbanSquare },
   { href: "/schedule", label: "Календарь", icon: CalendarDays },
   { href: "/projects", label: "Проекты", icon: FolderOpen },

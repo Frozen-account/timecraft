@@ -2,36 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
-  CalendarPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock, ExternalLink, Inbox,
+  CalendarPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Inbox,
   Loader2, PanelRightClose, PanelRightOpen, Paperclip, Plus, Star, X,
 } from "lucide-react";
 import { DailyFocusBadge, DailyFocusToggle, FOCUS_BLOCK } from "@/components/daily-focus";
-import { DONE_CARD, DONE_TITLE, DoneBadge, DoneCheckbox, usePreviousStatus } from "@/components/done-checkbox";
-import { TaskAttachments } from "@/components/task-attachments";
+import { DayTimeline } from "@/components/day-timeline";
+import { DONE_CARD, DONE_TITLE, DoneBadge, DoneCheckbox } from "@/components/done-checkbox";
+import { ScheduleDialog } from "@/components/schedule-dialog";
+import { useTaskMutations } from "@/components/task-mutations";
 import { WeekStrip } from "@/components/week-strip";
-import { DialogFrame, fieldCls } from "@/components/dialog-frame";
+import { DialogFrame, fieldCls, labelCls } from "@/components/dialog-frame";
 import { addDays, iso, isoWeek, isoWeekYear, mondayOf, mondayOfIsoWeek } from "@/lib/dates";
 import { PRIORITY, STATUS_LABEL } from "@/lib/labels";
+import { END_HOUR, HOUR_PX, START_HOUR, fmtTime, taskEnd, toMinutes } from "@/lib/schedule";
 import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import {
   ALL_WORKSPACES, ASSIGNEES, PRIORITIES, PROJECTS, STATUSES, projectWorkspace,
-  type Assignee, type Attachment, type Priority, type Project, type Schedule, type Status, type Task, type WorkspaceFilter,
+  type Assignee, type Priority, type Project, type Schedule, type Status, type Task, type WorkspaceFilter,
 } from "@/lib/types";
 import { getWorkspace, inWorkspace } from "@/lib/workspaces";
 
-const START_HOUR = 8;
-const END_HOUR = 20;
-const HOUR_PX = 64;
 // Hover-only controls stay visible on touch screens, which have no hover.
 const REVEAL = "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100";
-const TIME_OPTIONS = Array.from({ length: (END_HOUR - START_HOUR) * 2 }, (_, i) => {
-  const m = START_HOUR * 60 + i * 30;
-  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-});
-const DURATIONS = [30, 60, 90, 120, 180, 240];
 
 /** Paperclip shown on a card when the task carries files, so a ticket is findable without opening it. */
 function AttachmentMark({ count }: { count: number }) {
@@ -59,9 +53,6 @@ const INITIATIVE_LABEL: Record<string, string> = {
   "/projects/video-education": "Video Education",
 };
 
-// --- date helpers (local time) ---
-const toMinutes = (hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
-const fmtTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 const fmtShort = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 
 interface Block { task: Task; start: number; end: number; lane: number; lanes: number }
@@ -71,7 +62,7 @@ function layoutDay(tasks: Task[]): Block[] {
   const items = tasks
     .map((task) => {
       const start = toMinutes(task.scheduledTime!);
-      return { task, start, end: start + (task.durationMinutes ?? 60), lane: 0, lanes: 1 };
+      return { task, start, end: taskEnd(start, task.durationMinutes), lane: 0, lanes: 1 };
     })
     .sort((a, b) => a.start - b.start || b.end - a.end);
   let cluster: Block[] = [];
@@ -100,10 +91,8 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   const [creating, setCreating] = useState<Schedule | null>(null); // prefill for the "new task" dialog
   const [trayOpen, setTrayOpen] = useState(true);
   const [allPriorities, setAllPriorities] = useState(false);
-  // Ids with a PATCH in flight, plus the last failure, so a drag that is rejected says why.
-  const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
-  const previousStatus = usePreviousStatus();
+  // Writes are shared with Сегодня and the day timeline, so a PATCH behaves the same everywhere.
+  const { saving, error, setError, patchTask, toggleDone } = useTaskMutations();
   const [dragId, setDragId] = useState<string | null>(null);
   // "allday:<date>" | "slot:<date>:<hour>" | "tray"
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -154,37 +143,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
       ? iso(today)
       : (days[0] ? iso(days[0]) : todayIso);
 
-  /** PATCH one task, then re-render from the server. Returns an error message, or null. */
-  async function patchTask(id: string, patch: Record<string, unknown>): Promise<string | null> {
-    setSaving((s) => new Set(s).add(id));
-    setError(null);
-    try {
-      const res = await fetch(`/api/tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
-      if (!res.ok || !data.ok) {
-        const message = data.detail ?? data.error ?? "Не удалось сохранить изменение.";
-        setError(message);
-        return message;
-      }
-      router.refresh();
-      return null;
-    } catch {
-      const message = "Нет связи с сервером. Изменение не сохранено.";
-      setError(message);
-      return message;
-    } finally {
-      setSaving((s) => {
-        const next = new Set(s);
-        next.delete(id);
-        return next;
-      });
-    }
-  }
-
   // Unscheduling sends explicit nulls; the endpoint clears the dependent columns together and
   // gives up "дело дня", which cannot exist without a date.
   const setSchedule = (id: string, s: Schedule | null, isDailyFocus?: boolean) => {
@@ -194,11 +152,6 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
       durationMinutes: s?.durationMinutes ?? null,
       ...(isDailyFocus !== undefined && s ? { isDailyFocus } : {}),
     });
-  };
-
-  const toggleDone = (task: Task, next: boolean) => {
-    previousStatus.remember(task);
-    void patchTask(task.id, { status: next ? "done" : previousStatus.restore(task.id) });
   };
 
   async function createTask(draft: Omit<Task, "id">): Promise<string | null> {
@@ -352,8 +305,21 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
               onPick={(week) => setAnchor(mondayOfIsoWeek(week, isoWeekYear(anchor)))}
             />
           )}
+          {view === "day" && anchor ? (
+            <DayPanel
+              date={iso(anchor)}
+              tasks={scoped}
+              now={now}
+              isToday={iso(anchor) === todayIso}
+              showWorkspace={showWorkspace}
+              saving={saving}
+              onOpen={setEditing}
+              onToggleDone={toggleDone}
+              onCreate={() => setCreating({ scheduledDate: iso(anchor) })}
+            />
+          ) : (
           <div className="overflow-x-auto rounded-b-xl">
-            <div className={view === "week" ? "min-w-[860px]" : ""}>
+            <div className="min-w-[860px]">
             <div className="grid border-b border-line" style={{ gridTemplateColumns: `3.5rem repeat(${Math.max(days.length, 1)}, minmax(0, 1fr))` }}>
               <div />
               {days.map((d) => {
@@ -569,6 +535,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
             </div>
           </div>
         </div>
+          )}
         </div>
 
         {/* Unscheduled tray */}
@@ -637,99 +604,71 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
   );
 }
 
-const labelCls = "text-xs font-semibold text-ink-muted";
-
-function ScheduleDialog({ task, defaultDate, saving, onClose, onSave, onAttachments }: {
-  task: Task;
-  defaultDate: string;
-  saving: boolean;
-  onClose: () => void;
-  onSave: (s: Schedule | null, isDailyFocus: boolean) => void;
-  /** Persists the attachment list. Resolves to an error message, or null once saved. */
-  onAttachments: (next: Attachment[]) => Promise<string | null>;
+/**
+ * One day on /schedule. The same DayTimeline that "Сегодня" uses, so the two cannot drift, plus
+ * this day's untimed tasks underneath — the week grid shows those in its "весь день" row, which
+ * the timeline has no equivalent for.
+ */
+function DayPanel({ date, tasks, now, isToday, showWorkspace, saving, onOpen, onToggleDone, onCreate }: {
+  date: string;
+  /** Every workspace-scoped task; the panel picks this day's out of it. */
+  tasks: Task[];
+  now: Date | null;
+  isToday: boolean;
+  showWorkspace: boolean;
+  saving: ReadonlySet<string>;
+  onOpen: (task: Task) => void;
+  onToggleDone: (task: Task, next: boolean) => void;
+  onCreate: () => void;
 }) {
-  const [date, setDate] = useState(task.scheduledDate ?? defaultDate);
-  const [time, setTime] = useState(task.scheduledTime && TIME_OPTIONS.includes(task.scheduledTime) ? task.scheduledTime : "10:00");
-  const [duration, setDuration] = useState(task.durationMinutes ?? 60);
-  // Date-only tasks open with a time selected, since the point is usually to assign one.
-  const [allDay, setAllDay] = useState(false);
-  const [isDailyFocus, setIsDailyFocus] = useState(task.isDailyFocus === true);
-  const pr = PRIORITY[task.priority];
-  const endsLate = toMinutes(time) + duration > END_HOUR * 60;
+  const forDay = tasks.filter((t) => t.scheduledDate === date);
+  const untimed = forDay.filter((t) => !t.scheduledTime);
 
   return (
-    <DialogFrame labelledBy="schedule-title" onClose={onClose}>
-        <div className="flex items-start gap-3">
-          <h2 id="schedule-title" className="flex-1 text-lg font-bold leading-snug">{task.title}</h2>
-          <button onClick={onClose} aria-label="Закрыть" className="rounded-md p-1 text-ink-muted hover:text-ink"><X className="size-5" /></button>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-semibold">
-          <span className="rounded-md bg-ink px-2 py-0.5 text-white">{task.project}</span>
-          <span className={`inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 ${pr.text}`}><span className={`size-1.5 rounded-full ${pr.dot}`} />{pr.label}</span>
-          <span className="rounded-md bg-muted px-2 py-0.5 text-ink-subtle">{task.assignee}</span>
-          <span className="rounded-md bg-muted px-2 py-0.5 text-ink-subtle">{task.status.replace("_", " ")}</span>
-        </div>
-        {task.notes && <p className="mt-3 text-sm text-ink-muted">{task.notes}</p>}
-        {task.tags.length > 0 && <p className="mt-2 text-xs text-ink-subtle">{task.tags.map((t) => `#${t}`).join(" ")}</p>}
-        {task.link && (
-          <Link href={task.link} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">
-            Открыть проект <ExternalLink className="size-3.5" aria-hidden />
-          </Link>
-        )}
-
-        {/* Uploads save on their own, immediately: they are not part of the schedule form below,
-            and waiting for "Сохранить" to commit a file the user can already see would lie. */}
-        <TaskAttachments
-          taskId={task.id}
-          attachments={task.attachments ?? []}
-          disabled={saving}
-          onChange={onAttachments}
-        />
-
-        <form
-          className="mt-5 border-t border-line pt-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!date) return;
-            onSave(allDay ? { scheduledDate: date } : { scheduledDate: date, scheduledTime: time, durationMinutes: duration }, isDailyFocus);
-          }}
-        >
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><Clock className="size-4 text-brand" aria-hidden /> {task.scheduledTime ? "Перенести" : "Назначить время"}</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="text-xs font-semibold text-ink-muted">Дата
-              <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className={`mt-1 ${fieldCls}`} />
-            </label>
-            <label className="text-xs font-semibold text-ink-muted">Начало
-              <select value={time} disabled={allDay} onChange={(e) => setTime(e.target.value)} className={`mt-1 ${fieldCls} disabled:opacity-50`}>
-                {TIME_OPTIONS.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </label>
-            <label className="text-xs font-semibold text-ink-muted">Длительность
-              <select value={duration} disabled={allDay} onChange={(e) => setDuration(Number(e.target.value))} className={`mt-1 ${fieldCls} disabled:opacity-50`}>
-                {DURATIONS.map((d) => <option key={d} value={d}>{d < 60 ? `${d} мин` : `${d / 60} ч`}</option>)}
-              </select>
-            </label>
-          </div>
-          <label className="mt-3 flex items-center gap-2 text-sm text-ink-subtle">
-            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="accent-[var(--color-brand)]" />
-            На весь день (без конкретного времени)
-          </label>
-          {!allDay && endsLate && <p className="mt-2 text-xs text-amber-700">Блок заканчивается после 20:00 — в сетке он будет обрезан.</p>}
-          <div className="mt-3">
-            <DailyFocusToggle checked={isDailyFocus} hasDate={Boolean(date)} disabled={saving} onChange={setIsDailyFocus} />
-          </div>
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            {task.scheduledDate && (
-              <button type="button" disabled={saving} onClick={() => onSave(null, false)} className="rounded-lg px-3 py-2 text-sm font-semibold text-ink-muted hover:text-brand disabled:opacity-60">Снять с расписания</button>
-            )}
-            <button type="button" onClick={onClose} className="ml-auto rounded-lg px-4 py-2 text-sm font-semibold text-ink-muted hover:text-ink">Отмена</button>
-            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-brand-dark hover:shadow-md disabled:opacity-60">
-              {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-              Сохранить
-            </button>
-          </div>
-        </form>
-    </DialogFrame>
+    <div className="p-3 sm:p-4">
+      <DayTimeline
+        tasks={forDay.filter((t) => t.scheduledTime)}
+        now={now}
+        isToday={isToday}
+        showWorkspace={showWorkspace}
+        saving={saving}
+        onOpen={onOpen}
+        onToggleDone={onToggleDone}
+        onCreate={onCreate}
+      />
+      {untimed.length > 0 && (
+        <section className="mt-4 border-t border-line pt-3">
+          <h3 className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-muted">
+            <Inbox className="size-3.5" aria-hidden /> Весь день
+          </h3>
+          <ul className="flex flex-col gap-1.5">
+            {untimed.map((t) => {
+              const done = t.status === "done";
+              return (
+                <li
+                  key={t.id}
+                  className={`flex items-start gap-2.5 rounded-xl border border-line border-l-4 bg-surface p-2.5 shadow-sm ${done ? DONE_CARD : ""}`}
+                  style={{ borderLeftColor: getWorkspace(t.workspace).color }}
+                >
+                  <span className="pt-0.5">
+                    <DoneCheckbox done={done} saving={saving.has(t.id)} title={t.title} onToggle={(next) => onToggleDone(t, next)} />
+                  </span>
+                  <button onClick={() => onOpen(t)} className="min-w-0 flex-1 text-left" title="Открыть задачу">
+                    <span className={`block text-sm font-bold leading-snug ${done ? DONE_TITLE : ""}`}>{t.title}</span>
+                    <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-ink-muted">
+                      <span className={`size-1.5 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
+                      <span className="rounded bg-ink px-1 py-px text-[10px] text-white">{t.project}</span>
+                      {t.attachments && t.attachments.length > 0 && <AttachmentMark count={t.attachments.length} />}
+                      {showWorkspace && <WorkspaceBadge id={t.workspace} />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }
 

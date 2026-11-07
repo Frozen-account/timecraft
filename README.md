@@ -17,9 +17,10 @@ Migrated from the IMOSTA marketing hub; the IMOSTA data (tasks, project docs, `I
 
 | Route        | View                                   | Data source            |
 | ------------ | -------------------------------------- | ---------------------- |
-| `/`          | Dashboard: open work, next slot and memory per project | Postgres `tasks`, `memory/` |
+| `/`          | **Сегодня**: today's focus, a vertical day timeline and untimed tasks | Postgres `tasks` |
+| `/dashboard` | Dashboard: open work, next slot and memory per project | Postgres `tasks`, `memory/` |
 | `/tasks`     | Kanban: Backlog → In Progress → Review → Done, create tasks | Postgres `tasks` |
-| `/schedule`  | Weekly time-blocking calendar: drag & drop, quick task creation | Postgres `tasks` |
+| `/schedule`  | Weekly time-blocking calendar: drag & drop, quick task creation; День shares the Сегодня timeline | Postgres `tasks` |
 | `/projects`  | Markdown documentation reader          | `projects/*.md`        |
 | `/memory`    | Memory files, grouped by project, with the agents that can read each | `memory/*.md` |
 | `/agents`    | Agent access matrix and API usage      | `agents/access.json`   |
@@ -92,7 +93,8 @@ A task stores only its `direction`; the workspace comes from `directions.workspa
 `tasks_with_workspace` view, so a task cannot contradict its direction. Directions are listed in
 `PROJECTS` (`src/lib/types.ts`) and must exist as rows in `directions` — adding one means both a
 constant and a migration, or the insert fails on the foreign key. The pages that read tasks
-(`/`, `/tasks`, `/schedule`, `/agents`) are therefore rendered per request rather than prerendered.
+(`/`, `/dashboard`, `/tasks`, `/schedule`, `/agents`) are therefore rendered per request rather than
+prerendered.
 
 ### Endpoints
 
@@ -134,6 +136,21 @@ another task's folder. Cards on `/schedule` show a paperclip when a task has fil
 
 Needs `supabase/migrations/20261107010000_task_attachments.sql`. Until it is applied, tasks read
 back with no attachments and an upload reports the missing migration rather than throwing.
+
+## Сегодня (the first screen)
+
+`/` is the day view, not the dashboard. The question you open the app with on a phone is "what is
+next", and the dashboard's wide grid of directions is the one view that cannot be read one-handed;
+the dashboard moved to `/dashboard` and stays first-class in the nav.
+
+Three bands, in the order you need them: the **дело дня** banner, a **vertical timeline** of
+today's timed tasks with a live now-marker, and a **без времени** checklist. Tapping any of them
+opens the same task dialog the calendar uses, attachments dropzone included.
+
+The timeline is `src/components/day-timeline.tsx`, shared with `/schedule`'s **День** view so the
+two cannot drift. It is a list rather than an hour grid on purpose: a grid spends most of its
+height on empty hours, which is exactly the space a phone does not have, so gaps appear as a
+label ("2 ч свободно") instead. The week grid on desktop is unchanged.
 
 ## Authentication
 
