@@ -6,14 +6,14 @@ import { isoWeekRange, isoWeeksInYear } from "@/lib/dates";
 
 const fmt = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 
-// One arrow click moves roughly five chips — enough to feel like a step, short enough to keep
-// the eye on the week you came from.
-const STEP_PX = 180;
+// One arrow click moves half the 30rem window — far enough to feel like a step, short enough
+// that the weeks you came from stay on screen as a landmark.
+const STEP_PX = 240;
 
 /**
  * ISO week picker. A full year is 52 or 53 chips, which is far wider than the calendar card, so
  * the chips live in their own fixed-width scroll window with arrows on either side: the strip
- * itself never contributes more than ~22rem of intrinsic width to the layout around it.
+ * itself never contributes more than ~30rem of intrinsic width to the layout around it.
  */
 export function WeekStrip({
   activeWeek,
@@ -99,7 +99,7 @@ export function WeekStrip({
       </button>
       {/* min-w-0 is what keeps the chips from widening the calendar card: without it the flex
           item is sized by its (very wide) content instead of by the space available. */}
-      <div ref={strip} className="no-scrollbar flex min-w-0 max-w-[22rem] flex-1 items-center gap-1 overflow-x-auto">
+      <div ref={strip} className="no-scrollbar flex min-w-0 max-w-[30rem] flex-1 items-center gap-1 overflow-x-auto">
         {weeks.map(({ week, label }) => {
           const active = week === activeWeek;
           const isThisWeek = week === todayWeek && year === todayYear;
