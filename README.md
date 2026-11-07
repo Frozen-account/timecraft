@@ -89,7 +89,9 @@ node scripts/seed-tasks.mjs         # one-off import of backlog/tasks.json (idem
 ```
 
 A task stores only its `direction`; the workspace comes from `directions.workspace_id` through the
-`tasks_with_workspace` view, so a task cannot contradict its direction. The pages that read tasks
+`tasks_with_workspace` view, so a task cannot contradict its direction. Directions are listed in
+`PROJECTS` (`src/lib/types.ts`) and must exist as rows in `directions` — adding one means both a
+constant and a migration, or the insert fails on the foreign key. The pages that read tasks
 (`/`, `/tasks`, `/schedule`, `/agents`) are therefore rendered per request rather than prerendered.
 
 ### Endpoints
@@ -98,7 +100,7 @@ A task stores only its `direction`; the workspace comes from `directions.workspa
 | --- | --- | --- |
 | `GET /api/context` | read tasks + memory for an agent | agent bearer token |
 | `POST /api/tasks` | create a task | user session **or** agent bearer token |
-| `PATCH /api/tasks/<id>` | update `status`, `priority`, `scheduledDate`, `scheduledTime`, `durationMinutes` | user session **or** agent bearer token |
+| `PATCH /api/tasks/<id>` | update `status`, `priority`, `scheduledDate`, `scheduledTime`, `durationMinutes`, `attachments` | user session **or** agent bearer token |
 
 ```bash
 curl -X PATCH -H "Authorization: Bearer $AGENT_TOKEN_CLAUDE" -H 'Content-Type: application/json' \
@@ -114,6 +116,24 @@ gate, exactly as it does `/api/context`; both endpoints authenticate their own c
 Schedule rules are validated against the *resulting* row, so clearing a date while a time remains
 is a 400 rather than a constraint error. Title, direction, assignee, tags, notes and `due` are not
 patchable yet — change those in the Supabase dashboard.
+
+### Attachments
+
+Tasks carry files — tickets, photos, documents — in the private `task-attachments` bucket, one
+object per file at `<task id>/<uuid>.<ext>`. PNG, JPG, WEBP and PDF up to 10 MB, enforced by the
+bucket itself and not only in the browser.
+
+The bytes go from the browser **straight to Supabase Storage**, never through an API route: a
+serverless function body is capped well below 10 MB. The row then stores metadata only, saved via
+`PATCH /api/tasks/<id>` with the whole list, so adding and removing a file share one code path.
+
+The row stores the object `path`, not a URL. A signed URL expires, so persisting one would leave
+the column full of links that worked only on the day they were written; the UI signs paths on
+demand instead. `path` is pinned server-side to `<task id>/<file>`, so a payload cannot name
+another task's folder. Cards on `/schedule` show a paperclip when a task has files.
+
+Needs `supabase/migrations/20261107010000_task_attachments.sql`. Until it is applied, tasks read
+back with no attachments and an upload reports the missing migration rather than throwing.
 
 ## Authentication
 

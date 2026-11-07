@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   CalendarPlus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock, ExternalLink, Inbox,
-  Loader2, PanelRightClose, PanelRightOpen, Plus, Star, X,
+  Loader2, PanelRightClose, PanelRightOpen, Paperclip, Plus, Star, X,
 } from "lucide-react";
 import { DailyFocusBadge, DailyFocusToggle, FOCUS_BLOCK } from "@/components/daily-focus";
 import { DONE_CARD, DONE_TITLE, DoneBadge, DoneCheckbox, usePreviousStatus } from "@/components/done-checkbox";
+import { TaskAttachments } from "@/components/task-attachments";
 import { WeekStrip } from "@/components/week-strip";
 import { DialogFrame, fieldCls } from "@/components/dialog-frame";
 import { addDays, iso, isoWeek, isoWeekYear, mondayOf, mondayOfIsoWeek } from "@/lib/dates";
@@ -17,7 +18,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { WorkspaceBadge } from "@/components/workspace-switcher";
 import {
   ALL_WORKSPACES, ASSIGNEES, PRIORITIES, PROJECTS, STATUSES, projectWorkspace,
-  type Assignee, type Priority, type Project, type Schedule, type Status, type Task, type WorkspaceFilter,
+  type Assignee, type Attachment, type Priority, type Project, type Schedule, type Status, type Task, type WorkspaceFilter,
 } from "@/lib/types";
 import { getWorkspace, inWorkspace } from "@/lib/workspaces";
 
@@ -31,6 +32,19 @@ const TIME_OPTIONS = Array.from({ length: (END_HOUR - START_HOUR) * 2 }, (_, i) 
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 });
 const DURATIONS = [30, 60, 90, 120, 180, 240];
+
+/** Paperclip shown on a card when the task carries files, so a ticket is findable without opening it. */
+function AttachmentMark({ count }: { count: number }) {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line"
+      title={`Вложений: ${count}`}
+    >
+      <Paperclip className="size-2.5" aria-hidden />
+      {count}
+    </span>
+  );
+}
 
 // Date-navigation steps, in render order around the "Сегодня" button.
 const STEPS = [
@@ -409,6 +423,9 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                           <span className={`size-1.5 shrink-0 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
                         )}
                         <span className={`line-clamp-2 flex-1 ${t.status === "done" ? DONE_TITLE : ""}`}>{t.title}</span>
+                        {t.attachments && t.attachments.length > 0 && (
+                          <Paperclip className="size-3 shrink-0 text-ink-muted" aria-label={`Вложений: ${t.attachments.length}`} />
+                        )}
                         {t.status === "done" ? (
                           <DoneBadge compact />
                         ) : (
@@ -522,6 +539,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                                 <span className="rounded bg-muted px-1 py-px text-[10px] font-semibold text-ink-subtle ring-1 ring-line">{initiative}</span>
                               )}
                               {b.task.isDailyFocus && !done && <DailyFocusBadge compact />}
+                              {b.task.attachments && b.task.attachments.length > 0 && <AttachmentMark count={b.task.attachments.length} />}
                               {showWorkspace && <WorkspaceBadge id={b.task.workspace} />}
                             </span>
                           </button>
@@ -576,6 +594,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
                   <p className="flex items-center gap-1.5 text-[11px] font-semibold">
                     <span className={`size-1.5 rounded-full ${PRIORITY[t.priority].dot}`} aria-hidden />
                     <span className={PRIORITY[t.priority].text}>{PRIORITY[t.priority].label}</span>
+                    {t.attachments && t.attachments.length > 0 && <AttachmentMark count={t.attachments.length} />}
                     <span className="ml-auto rounded bg-ink px-1 py-px text-[10px] text-white">{t.project}</span>
                   </p>
                   <p className="mt-1 flex items-start gap-2 text-sm font-semibold leading-snug">
@@ -609,6 +628,7 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
           saving={saving.has(editing.id)}
           onClose={() => setEditing(null)}
           onSave={(s, focus) => { setSchedule(editing.id, s, focus); setEditing(null); }}
+          onAttachments={(next) => patchTask(editing.id, { attachments: next })}
         />
       )}
 
@@ -619,12 +639,14 @@ export function WeeklySchedule({ tasks }: { tasks: Task[] }) {
 
 const labelCls = "text-xs font-semibold text-ink-muted";
 
-function ScheduleDialog({ task, defaultDate, saving, onClose, onSave }: {
+function ScheduleDialog({ task, defaultDate, saving, onClose, onSave, onAttachments }: {
   task: Task;
   defaultDate: string;
   saving: boolean;
   onClose: () => void;
   onSave: (s: Schedule | null, isDailyFocus: boolean) => void;
+  /** Persists the attachment list. Resolves to an error message, or null once saved. */
+  onAttachments: (next: Attachment[]) => Promise<string | null>;
 }) {
   const [date, setDate] = useState(task.scheduledDate ?? defaultDate);
   const [time, setTime] = useState(task.scheduledTime && TIME_OPTIONS.includes(task.scheduledTime) ? task.scheduledTime : "10:00");
@@ -654,6 +676,15 @@ function ScheduleDialog({ task, defaultDate, saving, onClose, onSave }: {
             Открыть проект <ExternalLink className="size-3.5" aria-hidden />
           </Link>
         )}
+
+        {/* Uploads save on their own, immediately: they are not part of the schedule form below,
+            and waiting for "Сохранить" to commit a file the user can already see would lie. */}
+        <TaskAttachments
+          taskId={task.id}
+          attachments={task.attachments ?? []}
+          disabled={saving}
+          onChange={onAttachments}
+        />
 
         <form
           className="mt-5 border-t border-line pt-4"

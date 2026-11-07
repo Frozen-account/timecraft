@@ -3,8 +3,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  ASSIGNEES, PRIORITIES, PROJECTS, STATUSES, WORKSPACE_IDS, projectWorkspace,
-  type Assignee, type Priority, type Project, type Status, type Task, type WorkspaceId,
+  ASSIGNEES, PRIORITIES, PROJECTS, STATUSES, WORKSPACE_IDS, isAttachmentType, projectWorkspace,
+  type Assignee, type Attachment, type Priority, type Project, type Status, type Task, type WorkspaceId,
 } from "./types";
 
 /** Read through the view: `workspace` is derived from directions, never stored on the row. */
@@ -32,10 +32,31 @@ type Row = {
   workspace?: string | null;
   // Absent until 20261101000000_daily_focus.sql is applied.
   is_daily_focus?: boolean | null;
+  // Absent until 20261107010000_task_attachments.sql is applied.
+  attachments?: unknown;
 };
 
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined =>
   allowed.includes(v as T) ? (v as T) : undefined;
+
+/**
+ * jsonb is schemaless, so a row can hold anything the column constraint allows. Entries that do
+ * not match Attachment are dropped individually: one malformed record should cost its own chip,
+ * not the whole task. Returns undefined for empty, matching the other optional Task fields.
+ */
+function rowAttachments(value: unknown): Attachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value.flatMap((raw): Attachment[] => {
+    if (!raw || typeof raw !== "object") return [];
+    const a = raw as Record<string, unknown>;
+    const { id, name, path, type, createdAt } = a;
+    if (typeof id !== "string" || typeof name !== "string" || typeof path !== "string") return [];
+    if (typeof type !== "string" || !isAttachmentType(type)) return [];
+    if (typeof createdAt !== "string" || !id || !name || !path) return [];
+    return [{ id, name, path, type, createdAt, size: typeof a.size === "number" ? a.size : 0 }];
+  });
+  return list.length > 0 ? list : undefined;
+}
 
 // Postgres `time` comes back as "12:30:00"; Task (and the calendar grid) expect "12:30".
 const toHHMM = (v: string | null): string | undefined => (v ? v.slice(0, 5) : undefined);
@@ -54,6 +75,7 @@ export function rowToTask(row: Row): Task | null {
 
   // Trust the view's derived workspace, but fall back to the direction's own mapping.
   const workspace = oneOf<WorkspaceId>(row.workspace, WORKSPACE_IDS) ?? projectWorkspace(project);
+  const attachments = rowAttachments(row.attachments);
 
   return {
     id: row.id,
@@ -72,6 +94,7 @@ export function rowToTask(row: Row): Task | null {
     durationMinutes: row.duration_minutes ?? undefined,
     // Only set when true, like the other optional fields, so payloads stay lean.
     ...(row.is_daily_focus ? { isDailyFocus: true } : {}),
+    ...(attachments ? { attachments } : {}),
   };
 }
 
@@ -137,6 +160,7 @@ export async function updateTask(
     scheduled_time?: string | null;
     duration_minutes?: number | null;
     is_daily_focus?: boolean;
+    attachments?: Attachment[];
   },
 ): Promise<Task> {
   const { error } = await client.from(TABLE).update(patch).eq("id", id);

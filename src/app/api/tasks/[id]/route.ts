@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return json({ ok: false, error: "invalid_json" }, 400);
   }
 
-  const parsed = parsePatch(body);
+  const parsed = parsePatch(body, id);
   if ("error" in parsed) return json({ ok: false, error: "invalid_patch", detail: parsed.error }, 400);
   const patch = parsed.value;
 
@@ -68,6 +68,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const touchesOtherFields =
       patch.status !== undefined ||
       patch.priority !== undefined ||
+      patch.attachments !== undefined ||
       "scheduledDate" in patch ||
       "scheduledTime" in patch ||
       "durationMinutes" in patch;
@@ -80,6 +81,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       ...("scheduledTime" in patch && { scheduled_time: resolved.scheduledTime }),
       ...("durationMinutes" in patch && { duration_minutes: resolved.durationMinutes }),
       ...(dropFocusFirst && { is_daily_focus: false }),
+      // The full list replaces the column: the browser sends what the task should end up with,
+      // so adding and removing a file are the same request.
+      ...(patch.attachments !== undefined && { attachments: patch.attachments }),
     });
 
     // After the schedule is in place, so "others on that date" is computed against the new date.
@@ -110,6 +114,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   } catch (err) {
     const { message, code } = err as Error & { code?: string };
     if (code === "42501") return json({ ok: false, error: "forbidden" }, 403);
+    // 42703 (undefined column) covers both pending migrations, so name the right one: the
+    // message carries the column, and only one of the two is about attachments.
+    if (code === "42703" && /attachments/i.test(message)) {
+      return json({ ok: false, error: "attachments_unavailable", detail: "Миграция 20261107010000_task_attachments.sql ещё не применена." }, 503);
+    }
     // The migration adding is_daily_focus / set_daily_focus has not been applied yet.
     if (code === "PGRST202" || code === "42883" || code === "42703") {
       return json({ ok: false, error: "daily_focus_unavailable", detail: "Миграция 20261101000000_daily_focus.sql ещё не применена." }, 503);
